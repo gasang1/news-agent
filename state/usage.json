@@ -1,0 +1,11 @@
+{
+  "period_start": "2026-10-12",
+  "prompt_tokens": 24574,
+  "completion_tokens": 23097,
+  "calls": 7,
+  "runs": 1,
+  "last_run": "2026-10-18T22:11:44",
+  "run_prompt_tokens": 24574,
+  "run_completion_tokens": 23097,
+  "run_calls": 7
+}
