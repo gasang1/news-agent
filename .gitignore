@@ -1,0 +1,22 @@
+# 密钥：绝对不能提交
+.env
+*.key
+secrets_local.py
+
+# 报告和额度账本要提交进仓库
+#   reports/   —— GitHub Actions 跑完把周报提交回来，你才能在手机上看
+#   state/     —— token 额度账本和"上次成功运行"日期，不提交的话每次运行都会重置
+# 所以这两个目录**不能**写进忽略规则。
+
+# 运行时的临时文件
+state/notifications.log
+state_test/
+.tmp/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 日志
+*.log

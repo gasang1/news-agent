@@ -1,0 +1,81 @@
+name: 安全 & AI 周报
+
+# 触发方式
+on:
+  schedule:
+    # cron 用的是 UTC 时间。
+    #   0 1 * * 1  →  每周一 01:00 UTC  =  北京时间周一 09:00
+    # 注意：GitHub 的定时任务不是精确到分钟的，高峰期可能延迟十几分钟甚至更久。
+    - cron: "0 1 * * 1"
+
+  # 允许手动触发：仓库页面 → Actions → 左侧选这个 workflow → Run workflow
+  # 第一次配置时强烈建议先用它跑一次，别等周一。
+  workflow_dispatch:
+
+# 需要写权限，才能把生成的周报提交回仓库
+permissions:
+  contents: write
+
+# 防止两次运行撞在一起（比如手动触发时正好赶上定时任务）
+concurrency:
+  group: weekly-digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          # 本项目零第三方依赖（只用标准库），所以不需要缓存 pip
+
+      - name: 生成周报
+        env:
+          # Key 存在 GitHub Secrets 里，不要写进代码。
+          # 设置位置：仓库 → Settings → Secrets and variables → Actions → New repository secret
+          # 名称必须是 DEEPSEEK_API_KEY
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          # 让 datetime.now() 和 date.today() 用北京时间，
+          # 否则报告上的日期和额度周期都会按 UTC 算，会差 8 小时。
+          TZ: Asia/Shanghai
+          # 代码会通过这个变量识别"我在 GitHub 上跑"，
+          # 从而启用直连模式：所有源都直连，不检测代理、不跳过英文源。
+          GITHUB_ACTIONS: "true"
+        run: python main.py
+
+      - name: 查看额度
+        if: always()
+        env:
+          TZ: Asia/Shanghai
+        run: python main.py --check-budget
+        continue-on-error: true
+
+      - name: 把周报和额度账本提交回仓库
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reports state
+          if git diff --cached --quiet; then
+            echo "没有变化，跳过提交"
+          else
+            git commit -m "chore: 周报 $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - name: 上传周报为附件
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-report
+          path: reports/
+          # 附件保留 30 天，过期就没了。
+          # 长期保存依靠上面「提交回仓库」那一步。
+          retention-days: 30
