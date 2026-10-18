@@ -306,6 +306,8 @@ def main() -> int:
     parser.add_argument("--no-filter", action="store_true", help="不做关键词筛选，看原始全量")
     parser.add_argument("--no-ai", action="store_true", help="不调模型，只输出筛选后的清单")
     parser.add_argument("--no-save", action="store_true", help="只在终端显示，不写文件")
+    parser.add_argument("--no-notify", action="store_true",
+                        help="不推送微信，只写文件")
     parser.add_argument("--check-budget", action="store_true",
                         help="只看本周 token 额度，不抓取不调用模型")
     parser.add_argument("--limit", type=int, default=0, help="终端每类最多显示几条（0=全部）")
@@ -467,6 +469,9 @@ def main() -> int:
             print(f"文件大小：{out_path.stat().st_size:,} 字节")
             # 只有真正写出周报才算"成功运行"，用于下次的漏跑补偿
             budget.save_last_success()
+            # 推送（手机微信能直接读全文；没配 SendKey 时只落本地日志）
+            if not args.no_notify:
+                notify.send_weekly(True, start, end, len(analysis["items"]), md)
 
         # 本次运行结束后的额度状态
         if ai_budget:

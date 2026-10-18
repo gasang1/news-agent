@@ -118,12 +118,25 @@ MAX_CALLS_PER_RUN = 40
 CATCHUP_MAX_DAYS = 30
 
 # ---------------------------------------------------------------------------
-# 通知
+# 通知（微信推送，走 Server 酱）
 # ---------------------------------------------------------------------------
-# 现在为 False —— 只写本地 state/notifications.log，不外发。
-# 想真正收到推送：填好 notify.py 里的通道实现，把通道加进 CHANNELS，
-# 再把这里改成 True。
-NOTIFY_ENABLED = False
+# 开通步骤见 README 的「手机和电脑上怎么看」：
+#   1. 浏览器打开 https://sct.ftqq.com/ ，微信扫码登录
+#   2. 复制你的 SendKey（形如 SCT123456Txxxxxxxx）
+#   3. 本机：写进 .env         WECHAT_SENDKEY=SCT...
+#      云端：写进 GitHub → Settings → Secrets and variables → Actions
+#            名字 WECHAT_SENDKEY，值同上（workflow 里已经传进来了）
+#
+# 没配 SendKey 时不报错：通知只落 state/notifications.log，程序照常跑完。
+NOTIFY_ENABLED = True
+
+
+def get_sendkey() -> str:
+    return os.environ.get("WECHAT_SENDKEY", "").strip()
+
+
+# Server 酱单条正文上限 32KB，留点余量。超了就截断，并注明"已截断"。
+NOTIFY_MAX_CHARS = 30_000
 
 # ---------------------------------------------------------------------------
 # 新闻源

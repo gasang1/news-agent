@@ -198,22 +198,61 @@ python main.py --check-budget
 
 ---
 
-## 通知（已留位置，尚未外发）
+## 手机和电脑上怎么看
 
-预算耗尽、AI 环节失败都会调用 `notify.notify()`。现在的行为：
+三条路，按推荐顺序：
 
-1. 打印到终端
-2. 追加写进 `state/notifications.log`（即使没配通道，事后也能查到）
+### ① 微信推送（已接好，配个 Key 就通）
 
-**外发通道按你的要求先不做**，但接入位置全部留好了：
+每周周报生成后，会往微信推一条消息，**正文就是周报全文**（Markdown 渲染），点开就能读，不用登录 GitHub。电脑上打开微信也能看同一条。
+
+开通（5 分钟，免费）：
+
+1. 浏览器打开 <https://sct.ftqq.com/> ，微信扫码登录
+2. 页面上会显示你的 **SendKey**（形如 `SCT123456Txxxxxxxxxx`），复制它
+3. 让微信能收到：在站点里点「消息通道」→ 微信扫码关注，确认「已绑定」
+4. 填进两处：
+   - 本机：`.env` 里加一行 `WECHAT_SENDKEY=SCT...`
+   - 云端：GitHub 仓库 → Settings → Secrets and variables → Actions → New repository secret
+     名字 `WECHAT_SENDKEY`，值同上（`weekly.yml` 里已经把它传进环境了）
+
+免费额度是**每天 5 条**，这个 agent 每周只发 1 条，用不完。
+
+实现细节：`notify.py` → `_send_serverchan()`，POST `https://sctapi.ftqq.com/<SendKey>.send`，标题限 32 字、正文限 32KB（超了按行截断并注明）。发失败**不影响周报生成**，只是收不到推送。
+
+### ② GitHub 网页 / 手机 App
+
+任何设备打开 <https://github.com/gasang1/news-agent/tree/main/reports> 就是全部历史周报，点开后 GitHub 会渲染 Markdown。私有仓库需要登录你的账号。
+
+- 手机浏览器也能用，只是要重新登录一次
+- 装 GitHub 手机 App、登录后同样能看
+- 想「有更新时邮件提醒」：仓库页右上角 **Watch → Custom → Releases / Discussions** 之类的勾选，或者直接 Watch 全部（`All Activity` 会在每次机器人提交时发邮件，可能有点吵）
+
+### ③ 存到本地同步盘（要一台常开的电脑）
+
+改 `config.OUTPUT_DIR`，指向坚果云 / OneDrive 的同步目录：
+
+```python
+OUTPUT_DIR = r"D:\坚果云\安全AI周报"
+```
+
+这样本机跑完，文件直接进同步盘，手机上的网盘 App 也能看。
+**注意**：GitHub Actions 跑在云端，无法直接写你的同步盘 —— 这条只对"本机定时跑"有用。云端生成的报告要落到网盘，得额外配 rclone + WebDAV 凭据。
+
+### 还没做的通道
+
+`notify.py` 里留了两个空壳，需要时填：
 
 | 想接什么 | 改哪里 |
 |---|---|
-| 微信（Server 酱） | `notify.py` 的 `_send_serverchan()` |
 | 企业微信群机器人 | `notify.py` 的 `_send_wecom()` |
-| 邮件 | `notify.py` 的 `_send_email()` |
+| 邮件（SMTP） | `notify.py` 的 `_send_email()` |
 
-改完之后把函数加进 `CHANNELS` 列表，并把 `config.NOTIFY_ENABLED` 设为 `True` —— 调用方一行都不用动。
+实现完加进 `notify._channels()` 返回的列表即可，调用方一行都不用动。
+
+### 通知的兜底
+
+无论有没有配通道、通道发没发成功，所有通知都会打印到终端并追加进 `state/notifications.log`（单条上限 1500 字符，避免仓库被日志撑大）。所以「没配通道 = 丢失通知」不会发生。
 
 ---
 
@@ -251,7 +290,7 @@ python main.py --check-budget
 | `screening.py` | 两级粗筛：标题黑名单 + 领域关键词（免费） |
 | `analyzer.py` | AI 精选：召回 → 联合排序 → 分配篇幅 → 撰写 |
 | `budget.py` | token 预算闸门：事前拦截、事后累计、周期重置 |
-| `notify.py` | 通知出口：本地落地 + 预留外发通道 |
+| `notify.py` | 通知出口：微信推送（Server 酱）+ 本地落地 |
 | `main.py` | 主流程串联与 Markdown 渲染 |
 | `state/` | 运行状态：额度账本 `usage.json`、通知日志 |
 | `probe/` | 一次性探测与测试脚本，日常不用 |
@@ -374,9 +413,10 @@ reports/weekly_YYYY-MM-DD.md
 
 ## 待办
 
-- [ ] **通知外发**：填 `notify.py` 里的通道实现，把通道加进 `CHANNELS`，开 `NOTIFY_ENABLED`
-- [ ] **推送到手机**：Server 酱 / 企业微信机器人（GitHub 上跑完直接推到微信，连仓库都不用打开）
+- [x] ~~通知外发（微信）~~ → `notify.py` 的 `_send_serverchan()`，配 `WECHAT_SENDKEY` 即生效
+- [x] ~~推送到手机~~ → Server 酱每周一条微信消息，正文是周报全文，见「手机和电脑上怎么看」
 - [ ] **按类设置上限**：`MAX_PER_CATEGORY` 现在是单一整数，可以改成 `{"security": 12, "ai": 6}`
+- [ ] 企业微信机器人 / 邮件通道（`notify.py` 里留了空壳）
 - [x] ~~定时运行~~ → GitHub Actions，见 `.github/workflows/weekly.yml`
 - [x] ~~漏跑补偿~~ → `state/last_run.json` + 窗口自动扩展
 

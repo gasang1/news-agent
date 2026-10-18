@@ -42,6 +42,9 @@ jobs:
           # 设置位置：仓库 → Settings → Secrets and variables → Actions → New repository secret
           # 名称必须是 DEEPSEEK_API_KEY
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          # Server 酱的 SendKey（微信推送）。没配也不影响周报生成，只是收不到推送。
+          # 设置位置同上，名称必须是 WECHAT_SENDKEY。
+          WECHAT_SENDKEY: ${{ secrets.WECHAT_SENDKEY }}
           # 让 datetime.now() 和 date.today() 用北京时间，
           # 否则报告上的日期和额度周期都会按 UTC 算，会差 8 小时。
           TZ: Asia/Shanghai
