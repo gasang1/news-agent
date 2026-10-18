@@ -62,6 +62,7 @@ jobs:
           python probe/test_if_missing.py
           python probe/test_allocate.py
           python probe/test_budget.py
+          python probe/test_injection.py
 
       - name: 生成周报
         env:

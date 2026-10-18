@@ -65,6 +65,16 @@ def report_ready(path: Path) -> bool:
         return False
 
 
+def too_few_items(n_items: int) -> bool:
+    """收录条数是不是低到"该当故障处理"。
+
+    正常一周 10-18 条。掉到 `config.MIN_ITEMS_FOR_SUCCESS` 以下通常不是
+    "这周真没新闻"，而是某个环节坏了 —— 源大面积失败、模型只返回几条、
+    分类被整批归错。这种情况必须让补跑机制接手（见 main() 里的注释）。
+    """
+    return n_items < config.MIN_ITEMS_FOR_SUCCESS
+
+
 def resolve_window(args) -> tuple[datetime, datetime, str]:
     """返回 (起, 止, 给人看的描述)。
 
@@ -488,6 +498,28 @@ def main() -> int:
         finally:
             ai_budget.save()
 
+    too_few = False            # 收录条数低于阈值：这次不算成功
+    if use_ai:
+        n_items = len(analysis["items"])
+        if too_few_items(n_items):
+            # 不写 weekly_*.md、不更新 last_success，直接走降级。
+            # 为什么不硬着头皮写一份 3 条新闻的周报：
+            #   1. 13:20 的补跑闸门看到文件存在就不会重试（它只认"有没有文件"）
+            #   2. 漏跑补偿看到"上次成功"就不会扩大窗口
+            #   3. Actions 变绿，你不会知道这一周其实是坏的
+            print(f"\n⚠️  只收录了 {n_items} 条（低于阈值 "
+                  f"{config.MIN_ITEMS_FOR_SUCCESS} 条），不算成功运行。")
+            print("    不写周报、不更新上次成功时间，周一 13:20 的兜底任务会再试一次。")
+            notify.notify(
+                f"本周只收录到 {n_items} 条新闻，不算成功",
+                f"低于阈值 {config.MIN_ITEMS_FOR_SUCCESS} 条，这次的周报不作为本周成果保存，"
+                f"周一 13:20 会自动补跑一次。\n\n"
+                f"{ai_budget.summary() if ai_budget else ''}",
+                level="warning",
+            )
+            use_ai = False
+            too_few = True
+
     if use_ai:
         print("-" * 78)
         print(f"收录 {len(analysis['items'])} 条（{usage}）")
@@ -539,12 +571,12 @@ def main() -> int:
         print(f"已保存：{out_path}")
         print(f"文件大小：{out_path.stat().st_size:,} 字节")
 
-    # 退出码约定：0 = 正常；3 = 该出周报但没出（AI 环节失败，只剩粗筛清单）。
-    # 为什么要区分：GitHub Actions 只看退出码。全都返回 0 的话，
+    # 退出码约定：0 = 正常；3 = 该出周报但没出（AI 环节失败、额度耗尽、收录太少，
+    # 只剩粗筛清单）。为什么要区分：GitHub Actions 只看退出码。全都返回 0 的话，
     # 模型 JSON 解析失败、额度耗尽这些事故在页面上都是绿色对勾，
     # 你只会以为"这周没新闻"，而不是"程序坏了"。
     # --no-ai / 没配 Key 属于用户主动选择，仍然返回 0。
-    if ai_failed:
+    if ai_failed or too_few:
         print("\n⚠️  本次没有生成周报，只产出了粗筛清单（退出码 3，让 Actions 变红）。")
         return 3
     return 0
