@@ -5,6 +5,14 @@
 
 **当前状态：完整可用。** 抓取 → 粗筛 → AI 精选 → 渲染周报，全流程跑通。
 
+一个从零手写的项目：**零第三方依赖**（只用 Python 标准库，不需要 `pip install`），
+每周一由 GitHub Actions 自动跑一次，约 0.4 元、约 4 分钟，生成一期周报并推到微信。
+
+- 想直接读成品：<https://github.com/gasang1/news-agent/tree/main/reports>
+- 想自己搭一套：从「怎么运行」开始，照着做大约 20 分钟
+
+许可：[MIT](LICENSE)——随便用、随便改，保留版权声明即可。
+
 ---
 
 ## 怎么运行
@@ -97,7 +105,7 @@ python main.py --from-raw .tmp/raw.json --no-notify        # 重跑筛选+模型
 
 **一次性配置（约 10 分钟）**
 
-1. 在 GitHub 上新建仓库（**选 Private**，周报会提交进去，别公开）
+1. 在 GitHub 上新建仓库（**Private 或 Public 都行**：公开的话别人也能读周报，见「如果别人也想看」；密钥永远只放 Secrets）
 2. 仓库 → Settings → Secrets and variables → Actions → New repository secret
    - Name：`DEEPSEEK_API_KEY`
    - Secret：你的 Key
@@ -134,7 +142,7 @@ git push -u origin main
 | **60 天不活跃会被禁用** | 仓库连续 60 天没有提交，定时任务会自动停掉 | 偶尔手动 Run 一次，或随便改个文件提交 |
 | 附件会过期 | artifact 只留 30 天 | 周报提交回仓库了，不受影响 |
 
-**费用**：私有仓库每月 2000 分钟免费额度。这个任务每次约 2-3 分钟，每周 1 次 ≈ 每月 10 分钟，**用掉 0.5%**。
+**费用**：公开仓库的 Actions 分钟数不限额；私有仓库每月 2000 分钟免费，这个任务每次约 3 分钟、每周 1 次 ≈ 每月 12 分钟，**用掉 0.6%**。
 
 ### 第 1 层替代方案：Windows 任务计划（电脑要开着）
 
@@ -344,7 +352,7 @@ python main.py --check-budget
 
 ### ② GitHub 网页 / 手机 App
 
-任何设备打开 <https://github.com/gasang1/news-agent/tree/main/reports> 就是全部历史周报，点开后 GitHub 会渲染 Markdown。私有仓库需要登录你的账号。
+任何设备打开 <https://github.com/gasang1/news-agent/tree/main/reports> 就是全部历史周报，点开后 GitHub 会渲染 Markdown。仓库已公开，不需要登录。
 
 - 手机浏览器也能用，只是要重新登录一次
 - 装 GitHub 手机 App、登录后同样能看
@@ -391,28 +399,40 @@ OUTPUT_DIR = r"D:\坚果云\安全AI周报"
 
 > 首次接通时手动发过一条「周报 agent 测试推送」，那是命令行手工验证 SendKey，不在流程里。
 
-### 如果别人也想看（当前选择：不公开）
+### 如果别人也想看（当前选择：公开）
 
-现在是**私有仓库 + 只推给你自己**。想开放时，四条路任选：
+**2026-10-19 起这个仓库是公开的。** 任何人打开 <https://github.com/gasang1/news-agent/tree/main/reports> 就能读全部历史周报，**不用登录、不用微信**。
+
+微信推送仍然只发给你自己（SendKey 在你自己的 GitHub Secrets 里）。想让别人也收到，还有三条路：
 
 | 方案 | 别人怎么看 | 改动量 |
 |---|---|---|
-| 仓库转 Public | 打开 `https://github.com/gasang1/news-agent/tree/main/reports` 就能读全部历史 | 一键（Settings → General → Danger Zone → Change visibility） |
+| ~~仓库转 Public~~ | 已完成，打开 `/reports` 就能读 | 0 |
 | GitHub Pages | 固定网址 + 周报目录页，像个小网站 | 加一个 deploy job（公开仓库免费） |
 | 多个微信收件人 | 各自注册 Server 酱，你把他们的 SendKey 也填进来 | `config.get_sendkey()` 改成支持逗号分隔的多 key，约 10 行 |
 | 企业微信群机器人 | 群里所有人都能看到 | 填 `notify.py` 的 `_send_wecom()` |
 
 零改动的临时办法：微信里长按那条周报消息 → **转发**给朋友。
 
-**转公开前必须确认的事**（已查过，2026-10-18）：
+**转公开前做的检查**（2026-10-19）：
 
 ```powershell
-git log --all -S 'sk-7509ca6143' --oneline   # DeepSeek Key
-git log --all -S 'ghp_' --oneline             # GitHub token
-git log --all -S 'SCT443074' --oneline        # Server 酱 SendKey
+git grep -I -n -E 'sk-[0-9a-zA-Z]{20,}' $(git rev-list --all)    # DeepSeek Key
+git grep -I -n -E 'ghp_[0-9a-zA-Z]{20,}' $(git rev-list --all)   # GitHub token
+git grep -I -n -E 'SCT[0-9]{6}' $(git rev-list --all)            # Server 酱 SendKey
+git log --all --oneline -- .env                                  # .env 是否被提交过
+git grep -I -n -E 'C:\\Users|用户名目录' $(git rev-list --all)    # 本机路径
 ```
 
-三条命令在全部 4 个分支、全部提交历史里**都是空的**——密钥只存在于 `.env`（被 gitignore）和 GitHub Secrets 里，从没进过仓库。所以转公开不会泄露凭据。
+结果：前两条**全部为空**；`SCT` 只命中文档里的格式示例（`SCT123456Txxxx`）；
+`.env` **从未进过 git**（`.gitignore` 第一条）；`state/notifications.log` 也在忽略列表里；
+仓库里没有本机绝对路径、没有邮箱、没有用户名目录。
+密钥只存在于本机 `.env` 和 GitHub Secrets 两处。
+
+> 一个残留：转公开时 README 里有一行示例命令写着真实 SendKey 的**前 9 个字符**
+> （`SCT443074`）。已从当前版本删除，但它还留在旧提交里。SendKey 是一个整体，
+> 缺后面几十位就无法使用——不过更稳妥的做法是**去 Server 酱后台重置一次 SendKey**，
+> 然后把新值同时更新到 `.env` 和 GitHub Secrets。
 
 顺带一个好处：**公开仓库的 Actions 分钟数不限额**（私有仓库每月 2000 分钟免费额度）。这个项目每周跑 3 分钟，两种都够用。
 
