@@ -96,6 +96,7 @@ def dump_analysis(path: str | Path, analysis: dict, usage,
         "start": _iso(start),
         "end": _iso(end),
         "stats": stats,
+        "candidates": analysis.get("_candidates", []),
         "analysis": {
             "overview": analysis.get("overview", ""),
             "items": [

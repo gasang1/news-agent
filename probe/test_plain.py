@@ -57,7 +57,7 @@ ANALYSIS = {
             "why": "测试影响 D。",
             "url": "https://example.com/d",
             "source": "测试源",
-            "category": "hardware",
+            "category": "ai",
             "lang": "zh",
             "published": datetime(2026, 10, 13),
             "score": 7,
@@ -107,12 +107,12 @@ def test() -> int:
     print("=== 2. 正文完好 ===")
     ok6 = check("有一级标题", md.startswith("# 科技周报"), md.splitlines()[0][:24])
     ok7 = check("有本周观察", "## 本周观察" in md)
-    ok8 = check("有 AI 分组", "## 🤖 人工智能（1 条）" in md)
+    ok8 = check("有 AI 分组", "## 🤖 人工智能（2 条）" in md)
     ok9 = check("有安全分组", "## 🔒 网络安全（1 条）" in md)
     ok21 = check("有开源分组", "## 🧩 开源项目（1 条）" in md)
-    ok22 = check("有硬件分组", "## 💻 科技硬件（1 条）" in md)
+    ok22 = check("没有硬件分组（板块已取消）", "科技硬件" not in md)
     order = [md.find(f"## {main.CATEGORY_LABEL[c]}") for c in main.CATEGORY_ORDER]
-    ok10 = check("板块顺序 = AI → 安全 → 开源 → 硬件",
+    ok10 = check("板块顺序 = AI → 安全 → 开源",
                  all(x >= 0 for x in order) and order == sorted(order),
                  str(order))
     ok11 = check("条目四要素齐全",

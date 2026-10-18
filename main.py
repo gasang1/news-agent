@@ -285,13 +285,18 @@ def build_weekly_markdown(analysis: dict, usage, outcomes: list[fetch.FetchOutco
     # 失败源少于阈值时保持干净，到阈值才挂警告 ——
     # 见 config.FAILED_SOURCE_WARN_THRESHOLD 的说明。
     failed = stats.get("sources_failed", 0)
-    head = (f"> 源：{stats['sources_total']} 个（成功 {stats['sources_ok']}"
-            + (f"，失败 {failed}" if failed else "") + "）")
-    if failed >= config.FAILED_SOURCE_WARN_THRESHOLD:
-        head += f" ⚠️ 有 {failed} 个源抓取失败，本期可能漏掉部分新闻"
-    head += (f"　|　抓取 {stats['fetched']} 篇　→　窗口内 {stats['in_window']} 篇　→　"
-             f"去重后 {stats['after_dedupe']} 篇　→　粗筛 {stats['after_filter']} 篇　→　"
-             f"**收录 {len(items)} 条**")
+    if stats.get("replay"):
+        # 存档重放：没联网，源统计无意义 —— 别写出"成功 0"让人以为全挂了
+        head = (f"> 源：存档重放（{stats['fetched']} 篇，未联网）"
+                f"　|　**收录 {len(items)} 条**")
+    else:
+        head = (f"> 源：{stats['sources_total']} 个（成功 {stats['sources_ok']}"
+                + (f"，失败 {failed}" if failed else "") + "）")
+        if failed >= config.FAILED_SOURCE_WARN_THRESHOLD:
+            head += f" ⚠️ 有 {failed} 个源抓取失败，本期可能漏掉部分新闻"
+        head += (f"　|　抓取 {stats['fetched']} 篇　→　窗口内 {stats['in_window']} 篇　→　"
+                 f"去重后 {stats['after_dedupe']} 篇　→　粗筛 {stats['after_filter']} 篇　→　"
+                 f"**收录 {len(items)} 条**")
     add(head)
     add(">")
     add(f"> 模型：{config.MODEL_SCREEN}（召回）+ {config.MODEL_RERANK}（排序）"
@@ -342,9 +347,11 @@ def render_from_analysis(path: str, no_save: bool, no_notify: bool) -> int:
     """
     data = replay.load_analysis(path)
     analysis = data["analysis"]
+    stats = dict(data["stats"] or {})
+    stats["replay"] = True
     md = build_weekly_markdown(analysis, data["usage"], [], None,
                                data["window_desc"], data["start"], data["end"],
-                               data["stats"])
+                               stats)
 
     print("=" * 78)
     print(f"从存档重放：{path}（{len(analysis['items'])} 条，零 token）")
@@ -405,6 +412,12 @@ def main() -> int:
                         help="用存档的模型判定重新渲染周报，不抓取不调模型（零 token）")
     parser.add_argument("--limit", type=int, default=0, help="终端每类最多显示几条（0=全部）")
     args = parser.parse_args()
+
+    # --no-notify 是总闸：本地调试时不要惊动手机上的读者。
+    # 只把它传给 send_weekly 是不够的 —— 额度告警、失败告警走的是 notify.notify()，
+    # 2026-10-19 本地调试时就漏推了一条"本周 AI 额度已用到 80% 以上"。
+    if args.no_notify:
+        config.NOTIFY_ENABLED = False
 
     # 只看额度，直接返回
     if args.check_budget:
@@ -506,6 +519,25 @@ def main() -> int:
     # ---- 5. 两级筛选（黑名单 + 关键词）----
     filtered, fstats = screening.apply_filters(deduped, use_blocklist=not args.no_filter)
 
+    # ---- 5.5 综合源归栏：cnBeta / ServeTheHome 按内容分派到 AI / 安全 / 开源 ----
+    # 这一步必须在 analyze() 之前：analyze() 按 article.category 分批，
+    # 标着 "general" 的文章不属于任何板块，进去也会被静默丢掉。
+    routed: list[fetch.Article] = []
+    route_stats: dict[str, int] = {}
+    dropped_general = 0
+    for a in filtered:
+        if a.category not in config.GENERAL_SOURCES:
+            routed.append(a)
+            continue
+        cat = screening.route_general(a.title, a.summary)
+        if cat is None:
+            dropped_general += 1
+            continue
+        a.category = cat
+        route_stats[cat] = route_stats.get(cat, 0) + 1
+        routed.append(a)
+    filtered = routed
+
     # ---- 6. 排序：日期新的在前，无日期的垫底 ----
     filtered.sort(key=lambda a: (a.published is not None, a.published or datetime.min),
                   reverse=True)
@@ -521,12 +553,21 @@ def main() -> int:
         "after_dedupe": len(deduped),
         "after_filter": len(filtered),
     }
+    if args.from_raw:
+        # 重放模式下没有 outcomes，那几个计数只会写出"成功 0"，误导读者
+        stats["replay"] = True
+        stats["sources_total"] = stats["sources_ok"] = 0
+        stats["sources_skipped"] = stats["sources_failed"] = 0
 
     print("-" * 78)
     print(f"抓取完成：{stats['fetched']} 篇 → 窗口内 {stats['in_window']} 篇 "
           f"→ 去重后 {stats['after_dedupe']} 篇（去掉重复 {removed} 篇）")
     print(f"筛选结果：{fstats['input']} 篇 → 保留 {fstats['kept']} 篇"
           f"（黑名单丢 {fstats['blocked']}，无关丢 {fstats['keyword_miss']}）")
+    if route_stats or dropped_general:
+        parts = "、".join(f"{CATEGORY_LABEL.get(c, c)} {n}" for c, n in route_stats.items())
+        print(f"综合源归栏：{sum(route_stats.values())} 篇（{parts}）"
+              + (f"，另有 {dropped_general} 篇判不出领域已丢弃" if dropped_general else ""))
     if undated:
         print(f"注意：{undated} 篇没有发布时间，已一并保留（无法判断是否在本周）")
     if stats["sources_failed"]:

@@ -74,6 +74,19 @@ def main() -> int:
     check("摘要里提到勒索", keep("某公司昨天出事了", "这次是勒索软件攻击"), True)
     check("摘要里完全没有", keep("某公司发布新款键盘", "手感很好，价格便宜"), False)
 
+    print("=== 6. 综合源归栏 route_general() ===")
+    # cnBeta 这类"什么都发"的源，粗筛后要按内容分派到 AI / 安全 / 开源
+    r = screening.route_general
+    check("勒索攻击 → security", r("某医院遭勒索软件攻击，业务停了三天", ""), "security")
+    check("CVE 编号 → security", r("CVE-2026-1234 在野利用", ""), "security")
+    check("模型发布 → ai", r("OpenAI 发布新模型，上下文扩到一百万", ""), "ai")
+    check("GPU 算力 → ai", r("新一代 GPU 训练集群上线", ""), "ai")
+    # 只命中硬件词：硬件板块已取消，算力与芯片归 AI（不能跟着板块一起消失）
+    check("纯芯片新闻 → ai（硬件归 AI）",
+          r("台积电 3 纳米制程良率提升", "先进封装产能翻倍"), "ai")
+    check("开源项目 → opensource", r("某开源项目一周涨粉十万，仓库被刷屏", ""), "opensource")
+    check("判不出领域 → None", r("今天天气不错，适合出门", "没有别的内容"), None)
+
     print()
     if FAILED:
         print(f"❌ {len(FAILED)} 项失败：{', '.join(FAILED)}")

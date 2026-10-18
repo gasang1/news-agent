@@ -184,6 +184,51 @@ def apply_filters(articles: list[Article], use_blocklist: bool = True
     return kept, stats
 
 
+# ---------------------------------------------------------------------------
+# 综合源归栏：cnBeta / ServeTheHome 这类"什么都发"的源，按内容分派板块
+# ---------------------------------------------------------------------------
+# 为什么需要它：以前 cnBeta 钉死在「科技硬件」板块，硬件板块一取消，
+# 它的文章就找不到归属的批次，会在 analyze() 里被静默丢弃。
+#
+# 规则（按优先级，第一个命中就算）：
+#   security → ai → opensource
+# 只命中硬件词（芯片/制程/HBM/显卡）的，归进 ai 栏 —— 硬件板块没了，
+# 但"算力与芯片"本身就是 AI 产业的主线，不该跟着板块一起消失。
+# 什么都不命中的，返回 None（调用方丢弃）：说明它既不是科技新闻也不够专业。
+_GENERAL_ROUTE_ORDER = ("security", "ai", "opensource")
+_HARDWARE_FALLBACK = "ai"
+
+# SHORT_TOKEN_PATTERNS 与板块的对应关系（顺序必须跟上面对齐）
+_SHORT_CATEGORIES = ("ai", "ai", "ai", "security")
+
+
+def _hits(category: str, haystack: str) -> bool:
+    """该板块的关键词是否命中。"""
+    for kw in _KEYWORD_SETS.get(category, ()):
+        if kw in haystack:
+            return True
+    return False
+
+
+def _short_hits(category: str, haystack: str) -> bool:
+    """该板块的短词（ai/ml/gpu/cve）是否命中。"""
+    for cat, regex in zip(_SHORT_CATEGORIES, _SHORT_RE):
+        if cat == category and regex.search(haystack):
+            return True
+    return False
+
+
+def route_general(title: str, summary: str) -> str | None:
+    """把综合源的文章分派到板块。返回板块名，判不出来返回 None。"""
+    text = f"{title} {summary}".lower()
+    for cat in _GENERAL_ROUTE_ORDER:
+        if _hits(cat, text) or _short_hits(cat, text):
+            return cat
+    if _hits("hardware", text):
+        return _HARDWARE_FALLBACK
+    return None
+
+
 if __name__ == "__main__":
     samples = [
         "Surfshark Promo Codes: 87% Off | October 2026",

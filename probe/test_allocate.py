@@ -1,12 +1,14 @@
-"""离线测试 allocate() 的篇幅分配逻辑，不调用 API、不花 token。
+﻿"""离线测试 allocate() 的篇幅分配逻辑，不调用 API、不花 token。
 
 覆盖几种真实会遇到的情况（断言的是"分配规则"，不是具体新闻）：
-    1. 四个板块都爆满 —— 被每个板块的上限 + 总上限截住
+    1. 三个板块都爆满 —— 被每个板块的上限 + 总上限截住
     2. 同一个源发了 10 条高分 —— 同源上限 3 条生效
     3. 某个板块候选很少 —— 不强凑（保底补不满就空着）
-    4. 平淡的一周（分数都低于门槛）—— 补到 MIN_TOTAL 且四个板块都在
+    4. 平淡的一周（分数都低于门槛）—— 补到 MIN_TOTAL 且三个板块都在
     5. 候选总数少于 MIN_TOTAL —— 全收，不硬凑
-    6. 总名额被高分板块吃满 —— 倒换机制给缺保底的板块腾位子
+    6. 名额被 must 吃满 —— 不为保底踢 must
+    7. 富余板块有非 must 的条目 —— 倒换一条给缺保底的板块
+    8. 混合档位 —— 必须档优先，低分靠保底补
 
 用法：python probe/test_allocate.py
 """
@@ -67,6 +69,10 @@ def run_case(title: str, ranked):
     return out, d
 
 
+def cap(cat: str) -> int:
+    return config.CATEGORIES[cat]["max"]
+
+
 def main() -> int:
     caps = "，".join(f"{c} {config.CATEGORIES[c]['min']}-{config.CATEGORIES[c]['max']}"
                     for c in config.CATEGORIES)
@@ -96,19 +102,18 @@ def main() -> int:
     # 3. 某个板块候选很少
     ranked = sorted(
         [mk("ai", i, 8, "good") for i in range(12)]
-        + [mk("hardware", i, 8, "good") for i in range(1)],
+        + [mk("opensource", i, 8, "good") for i in range(1)],
         key=lambda x: -x[1]["score"])
-    out, d = run_case("【3】硬件只有 1 条候选（保底补不满，应收 1 条）", ranked)
-    check("硬件全部收下", d["hardware"], 1)
+    out, d = run_case("【3】开源只有 1 条候选（保底补不满，应收 1 条）", ranked)
+    check("开源全部收下", d["opensource"], 1)
 
     # 4. 平淡的一周，分数都低于门槛
     ranked = sorted(
-        [mk(c, i, 5 if c != "hardware" else 4, "filler")
-         for c in config.CATEGORIES for i in range(6)],
+        [mk(c, i, 5, "filler") for c in config.CATEGORIES for i in range(6)],
         key=lambda x: -x[1]["score"])
-    out, d = run_case("【4】平淡一周（分数 4-5，应补到 MIN_TOTAL 且四板块都有）", ranked)
+    out, d = run_case("【4】平淡一周（分数 5，应补到 MIN_TOTAL 且三板块都有）", ranked)
     check("补到 MIN_TOTAL", len(out), config.MIN_TOTAL)
-    check("四个板块都在", all(d[c] > 0 for c in config.CATEGORIES), True)
+    check("三个板块都在", all(d[c] > 0 for c in config.CATEGORIES), True)
 
     # 5. 候选很少
     ranked = sorted(
@@ -118,29 +123,30 @@ def main() -> int:
     out, d = run_case("【5】候选只有 4 条（应全收，不硬凑）", ranked)
     check("全收", len(out), 4)
 
-    # 6. 全部名额被 must 吃满：不许为保底踢掉 must（宁可让硬件空着）
+    # 6. must 条数超过总上限：按板块顺序收满即止，绝不为了塞满而收非 must
+    n_must = sum(cap(c) for c in config.CATEGORIES)
     ranked = sorted(
-        [mk("ai", i, 9, "must") for i in range(8)]
-        + [mk("security", i, 9, "must") for i in range(6)]
-        + [mk("opensource", i, 9, "must") for i in range(6)]
-        + [mk("hardware", i, 5, "filler") for i in range(3)],
+        [mk(c, i, 9, "must") for c in config.CATEGORIES
+         for i in range(cap(c) + 1)],
         key=lambda x: -x[1]["score"])
-    out, d = run_case("【6】名额被 must 占满（不许踢 must，硬件允许空着）", ranked)
-    check("must 一条没丢", sum(1 for _, m in out if m["tier"] == "must"),
-          sum(1 for _, m in ranked if m["tier"] == "must"))
+    out, d = run_case("【6】must 比总名额还多（收满上限即止，全是 must）", ranked)
+    check("收满总上限", len(out), config.MAX_TOTAL)
+    check("收进来的全是 must", sum(1 for _, m in out if m["tier"] == "must"), len(out))
+    check("没有板块超上限",
+          all(d[c] <= cap(c) for c in config.CATEGORIES), True)
 
-    # 6b. 倒换：富余板块里有 good，就该让位给缺保底的板块
+    # 6b. 倒换：某板块欠保底、总名额已满，从有非 must 富余的板块倒一条过来
     ranked = sorted(
-        [mk("ai", i, 9, "must") for i in range(8)]
-        + [mk("security", i, 9, "must") for i in range(6)]
-        + [mk("opensource", i, 9, "must") for i in range(4)]
-        + [mk("opensource", 10 + i, 7, "good") for i in range(2)]
-        + [mk("hardware", i, 5, "filler") for i in range(3)],
+        [mk("ai", i, 9, "must") for i in range(4)]
+        + [mk("ai", 10 + i, 7, "good") for i in range(2)]
+        + [mk("security", i, 9, "must") for i in range(cap("security"))]
+        + [mk("opensource", i, 7, "good") for i in range(2)],
         key=lambda x: -x[1]["score"])
-    out, d = run_case("【6b】富余板块有 good（应倒换腾位给硬件）", ranked)
-    check("硬件达到保底", d["hardware"], config.CATEGORIES["hardware"]["min"])
-    check("must 一条没丢", sum(1 for _, m in out if m["tier"] == "must"),
-          sum(1 for _, m in ranked if m["tier"] == "must"))
+    out, d = run_case("【6b】开源欠保底（应从 AI 的 good 里倒换腾位）", ranked)
+    check("开源达到保底", d["opensource"], config.CATEGORIES["opensource"]["min"])
+    check("AI 让出了一条（从 6 降到 5）", d["ai"], 5)
+    check("must 一条没丢",
+          sum(1 for _, m in out if m["tier"] == "must"), 4 + cap("security"))
 
     # 7. 混合档位
     ranked = sorted(
@@ -148,8 +154,7 @@ def main() -> int:
          mk("security", 3, 7, "good"), mk("security", 4, 5, "filler")]
         + [mk("ai", 1, 9, "must"), mk("ai", 2, 7, "good"),
            mk("ai", 3, 6, "good"), mk("ai", 4, 3, "filler")]
-        + [mk("opensource", 1, 8, "good"), mk("opensource", 2, 6, "good")]
-        + [mk("hardware", 1, 7, "good")],
+        + [mk("opensource", 1, 8, "good"), mk("opensource", 2, 6, "good")],
         key=lambda x: -x[1]["score"])
     out, d = run_case("【7】混合档位（低于门槛的靠保底补足）", ranked)
     check("三条 must 都在", sum(1 for _, m in out if m["tier"] == "must"), 3)

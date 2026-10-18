@@ -61,9 +61,9 @@ SCREEN_BATCH_SIZE = 55
 # ---------------------------------------------------------------------------
 # 周报篇幅与收录规则
 # ---------------------------------------------------------------------------
-# 四个板块，各有自己的下限和上限。为什么不用一个统一数字：
+# 三个板块，各有自己的下限和上限。为什么不用一个统一数字：
 #   - 安全类天然高产（一周几百条漏洞通报），不压就会淹掉别的板块
-#   - 开源和硬件一周真能出圈的只有几条，下限设太高会逼模型拿垃圾凑数
+#   - 开源一周真能出圈的只有几条，下限设太高会逼模型拿垃圾凑数
 #   - AI 是读者最想看的，给最大的额度
 #
 #   min  每个板块至少几条 —— 防止某个方向整周消失（候选不够时会自动放弃）
@@ -77,15 +77,25 @@ SCREEN_BATCH_SIZE = 55
 #   模型给的分数是自我评价，跨分类不可比，而且它天然偏爱"漏洞在野利用"
 #   这类戏剧性事件。所以要一次跨分类联合排序（让分数可比）+ 保底和上限
 #   （防止偏科）+ 分数门槛（决定篇幅），三者缺一不可。
+#
+# 2026-10 去掉了「科技硬件」板块：它的成本最高（硬件类源占粗筛篇数三分之一）
+# 产出最低（一周往往只有 1-2 条，还经常和 cnBeta 的中文快讯重复）。
+# 硬件新闻里真正有信息量的部分是算力与芯片，现在归进 AI 栏，见 screening.route_general()。
 CATEGORIES = {
-    "ai":         {"label": "🤖 人工智能",  "emoji": "🤖", "min": 4, "max": 8, "order": 1},
-    "security":   {"label": "🔒 网络安全",  "emoji": "🔒", "min": 2, "max": 6, "order": 2},
-    "opensource": {"label": "🧩 开源项目",  "emoji": "🧩", "min": 2, "max": 6, "order": 3},
-    "hardware":   {"label": "💻 科技硬件",  "emoji": "💻", "min": 2, "max": 5, "order": 4},
+    "ai":         {"label": "🤖 人工智能",  "emoji": "🤖", "min": 3, "max": 6, "order": 1},
+    "security":   {"label": "🔒 网络安全",  "emoji": "🔒", "min": 2, "max": 5, "order": 2},
+    "opensource": {"label": "🧩 开源项目",  "emoji": "🧩", "min": 2, "max": 3, "order": 3},
 }
 
-MIN_TOTAL = 12
-MAX_TOTAL = 20
+# 综合源：这些源什么领域都发（cnBeta 一天几十条，从显卡到勒索软件），
+# 不适合提前钉死在某个板块。它们的 category 写 "general"，
+# 粗筛后由 screening.route_general() 按内容分派到上面三个板块之一。
+GENERAL_SOURCES = {"general"}
+
+# 总条数：宁可少而精。16 条里有 4 条读者划过去就忘，不如 10 条条条有信息。
+# 开源栏固定最多 3 个（读者一周能看进去的新项目就那么几个）。
+MIN_TOTAL = 8
+MAX_TOTAL = 12
 MIN_SCORE = 6
 
 # 同一个源最多占几条。
@@ -219,13 +229,17 @@ SOURCES = [
     {"name": "Wired",             "url": "https://www.wired.com/feed/rss",                  "category": "ai",       "lang": "en", "requires_proxy": True},
     {"name": "TechCrunch",        "url": "https://techcrunch.com/feed/",                    "category": "ai",       "lang": "en", "requires_proxy": True},
 
-    # ================= 科技硬件 · 国内可直连 =================
-    # 这两家是中文科技媒体里出稿最快、覆盖最全的，硬件/大厂决策主要靠它们。
-    {"name": "IT之家",            "url": "https://www.ithome.com/rss/",                     "category": "hardware", "lang": "zh", "requires_proxy": False},
-    {"name": "cnBeta",            "url": "https://www.cnbeta.com.tw/backend.php",           "category": "hardware", "lang": "zh", "requires_proxy": False},
+    # ================= 综合 · 国内可直连 =================
+    # cnBeta 一天几十条，从显卡到勒索软件什么都发，没法提前钉死在某个板块。
+    # 所以它的 category 是 "general"：粗筛后按内容分派到 AI / 安全 / 开源之一
+    # （见 screening.route_general()）。篇数是全站最多的，但产出也最多，
+    # 2026-10 实测 75 篇 → 12 条候选 → 3 条入选，留着划算。
+    {"name": "cnBeta",            "url": "https://www.cnbeta.com.tw/backend.php",           "category": "general",  "lang": "zh", "requires_proxy": False},
 
-    # ================= 科技硬件 · 需要代理 =================
-    {"name": "Tom's Hardware",    "url": "https://www.tomshardware.com/feeds/all",          "category": "hardware", "lang": "en", "requires_proxy": True},
+    # ServeTheHome 专写服务器与加速卡，篇数不多（一周 5 条左右）但硬核，
+    # 2026-10 实测 5 篇 → 1 条候选 → 1 条入选（NVIDIA RTX Spark），是全站性价比最高的源。
+    # 它同样标 general：芯片/算力类会被 route_general() 归进 AI 栏。
+    {"name": "ServeTheHome",      "url": "https://www.servethehome.com/feed/",               "category": "general",  "lang": "en", "requires_proxy": True},
 
     # ================= 开源项目 · 需要代理 =================
     # GitHub 官方博客：发布产品变更、平台策略，属于"开源生态"的权威信息源。

@@ -362,11 +362,18 @@ def fetch_github_trending(proxy: ProxyStatus, force_direct: bool = False,
                     bits.append(desc)
                 if lang:
                     bits.append(f"主要语言 {lang}")
+                forks = int(r.get("forks_count") or 0)
                 if created:
                     age = max(0, (datetime.now() - created).days)
-                    bits.append(f"上线 {age} 天，累计 {stars:,} 星")
+                    # 星标速度 = 唯一能拿到的"热度"量化指标。
+                    # GitHub 的搜索接口没有下载量，所以用"日均星标"代替：
+                    # 同样 2000 星，6 天涨上去和 300 天涨上去完全不是一回事。
+                    per_day = stars / max(1, age)
+                    bits.append(f"上线 {age} 天，累计 {stars:,} 星，日均 {per_day:.0f} 星")
                 else:
                     bits.append(f"累计 {stars:,} 星")
+                if forks:
+                    bits.append(f"{forks:,} 次 fork")
                 if topics:
                     bits.append("标签 " + "、".join(topics))
 
