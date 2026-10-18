@@ -99,12 +99,31 @@ def test() -> int:
     ok14 = check("最后一行是 <sub> 免责说明", tail[-1].startswith("<sub>覆盖"), tail[-1][:40])
     ok15 = check("免责说明在正文之后", md.find("<sub>") > md.find("https://example.com/b"))
 
+    print("=== 4. 失败源告警（阈值 3）===")
+
+    def head_of(failed: int) -> str:
+        stats = dict(STATS, sources_failed=failed,
+                     sources_ok=max(0, STATS["sources_total"] - failed))
+        out = main.build_weekly_markdown(
+            ANALYSIS, USAGE, OUTCOMES, "CI 直连", "最近 7 天", START, END, stats,
+        )
+        return next(ln for ln in out.splitlines() if ln.startswith("> 源："))
+
+    h1 = head_of(1)
+    ok16 = check("失败 1 个：不挂 ⚠️", "⚠️" not in h1, h1[:52])
+    ok17 = check("失败 1 个：但如实写明失败数", "失败 1" in h1)
+    h3 = head_of(3)
+    ok18 = check("失败 3 个：挂 ⚠️", "⚠️" in h3, h3[:72])
+    ok19 = check("失败 3 个：写明 3 个源失败", "有 3 个源抓取失败" in h3)
+    h0 = head_of(0)
+    ok20 = check("零失败：头部最干净", "失败" not in h0 and "⚠️" not in h0, h0[:52])
+
     print("\n=== 渲染出的末尾 12 行 ===")
     for line in md.splitlines()[-12:]:
         print("  " + line)
 
     passed = all([ok1, ok2, ok3, ok4, ok5, ok6, ok7, ok8, ok9, ok10,
-                  ok11, ok12, ok13, ok14, ok15])
+                  ok11, ok12, ok13, ok14, ok15, ok16, ok17, ok18, ok19, ok20])
     print(f"\n{'全部通过' if passed else '有失败项'}")
     return 0 if passed else 1
 

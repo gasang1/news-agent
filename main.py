@@ -144,8 +144,9 @@ def build_markdown(articles: list[fetch.Article], outcomes: list[fetch.FetchOutc
         f"网络模式：{proxy}")
     add("")
     add(f"> 源：{stats['sources_total']} 个（成功 {stats['sources_ok']}，"
-        f"跳过 {stats['sources_skipped']}，失败 {stats['sources_failed']}）　|　"
-        f"抓到 {stats['fetched']} 篇　→　窗口内 {stats['in_window']} 篇　→　"
+        f"跳过 {stats['sources_skipped']}，失败 {stats['sources_failed']}）"
+        + (" ⚠️" if stats["sources_failed"] >= config.FAILED_SOURCE_WARN_THRESHOLD else "")
+        + f"　|　抓到 {stats['fetched']} 篇　→　窗口内 {stats['in_window']} 篇　→　"
         f"去重后 {stats['after_dedupe']} 篇　→　**筛选后 {stats['after_filter']} 篇**")
     add("")
 
@@ -242,10 +243,17 @@ def build_weekly_markdown(analysis: dict, usage, outcomes: list[fetch.FetchOutco
     add("")
     add(f"> 生成时间：{datetime.now():%Y-%m-%d %H:%M}　|　时间窗口：{window_desc}")
     add(">")
-    add(f"> 源：{stats['sources_total']} 个（成功 {stats['sources_ok']}）　|　"
-        f"抓取 {stats['fetched']} 篇　→　窗口内 {stats['in_window']} 篇　→　"
-        f"去重后 {stats['after_dedupe']} 篇　→　粗筛 {stats['after_filter']} 篇　→　"
-        f"**收录 {len(items)} 条**")
+    # 失败源少于阈值时保持干净，到阈值才挂警告 ——
+    # 见 config.FAILED_SOURCE_WARN_THRESHOLD 的说明。
+    failed = stats.get("sources_failed", 0)
+    head = (f"> 源：{stats['sources_total']} 个（成功 {stats['sources_ok']}"
+            + (f"，失败 {failed}" if failed else "") + "）")
+    if failed >= config.FAILED_SOURCE_WARN_THRESHOLD:
+        head += f" ⚠️ 有 {failed} 个源抓取失败，本期可能漏掉部分新闻"
+    head += (f"　|　抓取 {stats['fetched']} 篇　→　窗口内 {stats['in_window']} 篇　→　"
+             f"去重后 {stats['after_dedupe']} 篇　→　粗筛 {stats['after_filter']} 篇　→　"
+             f"**收录 {len(items)} 条**")
+    add(head)
     add(">")
     add(f"> 模型：{config.MODEL_SCREEN}（召回）+ {config.MODEL_RERANK}（排序）"
         f"+ {config.MODEL_WRITE}（撰写）　|　用量：{usage}")
