@@ -1,4 +1,4 @@
-name: 安全 & AI 周报
+name: 科技周报
 
 # 触发方式
 on:
@@ -76,6 +76,9 @@ jobs:
           # 让 datetime.now() 和 date.today() 用北京时间，
           # 否则报告上的日期和额度周期都会按 UTC 算，会差 8 小时。
           TZ: Asia/Shanghai
+          # GitHub 自动提供的一次性令牌，用来查"本周新建且高星的仓库"（开源板块）。
+          # 不带它也能查，只是限额低（每小时 60 次），偶尔会和别的任务撞上限。
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 代码会通过这个变量识别"我在 GitHub 上跑"，
           # 从而启用直连模式：所有源都直连，不检测代理、不跳过英文源。
           GITHUB_ACTIONS: "true"

@@ -9,9 +9,12 @@
 """
 
 import html
+import json
+import os
 import re
 import socket
 import urllib.error
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
@@ -44,7 +47,7 @@ class Article:
     summary: str
     published: datetime | None
     source: str
-    category: str          # security / ai
+    category: str          # security / ai / hardware / opensource
     lang: str              # zh / en
 
     def is_valid(self) -> bool:
@@ -284,3 +287,109 @@ def fetch_all(sources: list[dict], proxy: ProxyStatus,
             articles.extend(outcome.articles)
 
     return articles, outcomes
+
+
+# ---------------------------------------------------------------------------
+# 特殊源：GitHub 本周爆火项目（搜索 API，不是 RSS）
+# ---------------------------------------------------------------------------
+def fetch_github_trending(proxy: ProxyStatus, force_direct: bool = False,
+                          days: int = 7, min_stars: int = 100,
+                          limit: int = 25) -> FetchOutcome:
+    """查最近 N 天新建、星标超过阈值的高星仓库（"本周爆火"）。
+
+    为什么用搜索 API 而不是 Trending 页面：
+        Trending 是给人看的 HTML，改版就解析不到（实测正则已经失效），
+        而且没有语言、描述、star 数这些结构字段。API 返回 JSON，一步到位。
+
+    为什么要带 token：
+        匿名调用限额 10 次/分钟，够用但很紧；GitHub Actions 里本来就有
+        GITHUB_TOKEN（workflow 已传进环境），带上就是 5000 次/小时。
+        本机没有 token 时也照跑，只是别在 10 分钟内反复重试。
+
+    失败不影响其它源 —— 和其它源一样只记录原因，绝不抛异常。
+    """
+    from datetime import timedelta
+
+    name = "GitHub 周榜"
+    since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    query = f"created:>{since} stars:>{min_stars}"
+    url = ("https://api.github.com/search/repositories?q="
+           + urllib.parse.quote(query)
+           + f"&sort=stars&order=desc&per_page={max(1, min(limit, 50))}")
+
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    headers = dict(HEADERS)
+    headers["Accept"] = "application/vnd.github+json"
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    # 路线：CI 直连；本机有代理就先代理，失败再直连兜底
+    if force_direct:
+        attempts: list[str | None] = [None]
+    elif proxy.available:
+        attempts = [proxy.url(), None]
+    else:
+        attempts = [None]
+
+    last_err = ""
+    for proxy_url in attempts:
+        try:
+            if proxy_url:
+                handler = urllib.request.ProxyHandler(
+                    {"http": proxy_url, "https": proxy_url})
+            else:
+                handler = urllib.request.ProxyHandler({})
+            opener = urllib.request.build_opener(handler)
+            req = urllib.request.Request(url, headers=headers)
+            with opener.open(req, timeout=TIMEOUT + 8) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+
+            items = data.get("items") or []
+            articles: list[Article] = []
+            for r in items:
+                full_name = str(r.get("full_name") or "").strip()
+                html_url = str(r.get("html_url") or "").strip()
+                if not full_name or not html_url:
+                    continue
+                stars = int(r.get("stargazers_count") or 0)
+                desc = re.sub(r"\s+", " ", str(r.get("description") or "")).strip()
+                lang = str(r.get("language") or "").strip()
+                topics = [str(t) for t in (r.get("topics") or [])][:6]
+                created = _parse_date(str(r.get("created_at") or ""))
+
+                bits: list[str] = []
+                if desc:
+                    bits.append(desc)
+                if lang:
+                    bits.append(f"主要语言 {lang}")
+                if created:
+                    age = max(0, (datetime.now() - created).days)
+                    bits.append(f"上线 {age} 天，累计 {stars:,} 星")
+                else:
+                    bits.append(f"累计 {stars:,} 星")
+                if topics:
+                    bits.append("标签 " + "、".join(topics))
+
+                headline = f"{full_name} — {desc[:70]}" if desc else full_name
+                articles.append(Article(
+                    title=_clean_text(headline),
+                    url=html_url,
+                    summary=_clean_text("；".join(bits)),
+                    published=created,
+                    source=name,
+                    category="opensource",
+                    lang="en",
+                ))
+            return FetchOutcome(name, articles, via_proxy=proxy_url is not None)
+        except urllib.error.HTTPError as e:
+            last_err = f"HTTP {e.code}"
+            if e.code in (403, 429):
+                last_err += "（多半是 API 限额）"
+        except urllib.error.URLError as e:
+            last_err = f"网络错误 {e.reason}"
+        except socket.timeout:
+            last_err = f"超时 >{TIMEOUT + 8}s"
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+
+    return FetchOutcome(name, error=last_err)

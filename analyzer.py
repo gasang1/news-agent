@@ -221,13 +221,25 @@ def _render_articles(blocks: list[str]) -> str:
     return f"<articles>\n{body}\n</articles>"
 
 
-SCREEN_SYSTEM = """你是一名资深的网络安全与人工智能新闻编辑，为一份周报挑选选题。
+SCREEN_SYSTEM = """你是一名资深的科技新闻编辑，为一份分四个板块的周报挑选题：
+人工智能、网络安全、开源项目、科技硬件。
 
-评判标准，按重要性从高到低：
-1. 有实质影响的安全事件：在野利用的漏洞、大规模数据泄露、供应链攻击、勒索事件、APT 活动
-2. 重要的技术进展：新模型发布、关键能力突破、重要开源项目、行业格局变化
-3. 有信息量的分析与政策：监管动向、重大并购、行业数据
-4. 可直接排除：产品促销、消费电子评测、企业宣传稿、活动预告、与安全或 AI 无关的内容
+**第一原则：读者要能读懂、能记住。**
+我们不要"某设备存在某编号高危漏洞，建议升级"这种通报式条目 —— 读者看完
+既不知道发生了什么，也不知道该关心什么。我们要的是**能讲成一件完整事**的新闻：
+谁做了什么、经过怎样、造成了什么后果、影响到谁。
+
+按重要性从高到低：
+1. 有完整经过与具体后果的事件：勒索攻击打到哪些机构、数据被拿走了多少、
+   业务停了多久、谁被追究；大规模在野利用且影响真实用户的安全事件
+2. 有实质变化的产业动作：模型能力跨代提升、价格/开放程度的重大变化、
+   大厂的收购与产能决策、开源项目突然爆发并被大规模采用
+3. 有信息量的分析与政策：监管落地、行业数据、有明确结论的调查报告
+4. 直接排除：产品促销、消费电子评测、发版公告与更新日志、企业宣传稿、
+   活动预告与报名、纯设备漏洞通报（除非影响面极大）
+5. 开源项目这一栏额外排除：游戏移植与破解、成人内容（NSFW）、刷榜玩具项目、
+   以及"看起来像项目其实是求职/引流仓库"的东西。要的是有技术含量、
+   有明确用途、真被人拿来用的项目
 
 务必严格：宁可少选，不要凑数。同一事件被多家报道时，只保留信息最全的那一条。
 
@@ -306,18 +318,30 @@ def screen(articles: list[Article], usage: Usage, progress=print,
     return results
 
 
-RERANK_SYSTEM = """你是一名资深的安全与 AI 新闻主编，负责决定本周周报收录哪些条目。
+RERANK_SYSTEM = """你是一名资深科技主编，负责决定本周周报收录哪些条目，并给每条定板块。
 
-这是一个**跨分类的联合评审**：网络安全和人工智能的候选放在一起比较。
-请把它们放在同一把尺子上打分，不要偏向任何一类。
+这是一次**跨板块的联合评审**：人工智能、网络安全、开源项目、科技硬件的候选
+放在一起比较。请放在同一把尺子上打分，不要偏向任何一类。
 
 评分锚点（严格按此校准，不要凭感觉给分）：
-  9-10 重大：大规模在野利用的 0day、国家级 APT 曝光、影响关键基础设施的勒索、
-             头部厂商的重大模型发布、明确改变行业格局的事件
-  7-8  重要：单个高危漏洞在野利用、官网补丁已发布、重要模型或产品发布、
-             有具体数据和结论的行业分析、重大监管或诉讼
-  5-6  一般：常规漏洞披露、漏洞技术分析、一般性行业动态、企业合作
+  9-10 重大：能改变判断的事 —— 国家级攻击被完整复盘、影响千万人的服务中断、
+              跨代能力的模型发布、被行业立刻采用的硬件/工艺突破
+  7-8  重要：有具体数字和后果的事件、确凿的在野利用、重要产品或平台决策、
+              一周涨粉数万的爆火项目、有大厂名字的重磅投资与产能动作
+  5-6  一般：常规披露与技术分析、一般性行业动态、企业合作、例行更新
   1-4  可省：产品更新与发版、厂商宣传稿、观点评论、纯活动报道
+
+**信息量校准（这一条最容易被忽略）**：
+  只有一句话、没有任何数字/过程/后果的条目，**最高只能给 6 分**。
+  哪怕它讲的是"最高危漏洞在野利用"，只要说不清影响了谁、怎么被利用、
+  有多少损失，读者看完什么也留不下 —— 这种条目不该占版面。
+
+**板块判断（务必按内容，不看来源）**：
+  ai         —— 模型与产品能力、AI 产业与治理、AI 引发的争议
+  security   —— 攻击、泄露、勒索、恶意软件、漏洞利用、防护与应急
+  opensource —— 开源项目本身、开源生态（许可证、基金会、维护者）、爆火仓库
+                （游戏移植/破解、成人内容、刷榜玩具项目一律给 1-3 分）
+  hardware   —— 芯片与半导体、终端与算力硬件、大厂的产能/收购/制造决策
 
 重要性分档：
   must   —— 本周必看，漏掉就是失职
@@ -326,11 +350,14 @@ RERANK_SYSTEM = """你是一名资深的安全与 AI 新闻主编，负责决定
 
 规则：
 - 同一事件只保留信息最全的一条
+- 同质化抑制：同一家公司的同类动作（连续发模型、连续发芯片）最多 1 条 must，
+  其余降为 good/filler —— 读者不需要看四遍"某厂又发了什么"
 - "上周就报过、这周没进展"的条目降档
 - 宁可少给 must，不要为了凑数把 good 抬成 must
 
 只输出 JSON：
-{"items":[{"id":编号,"score":1到10的整数,"tier":"must或good或filler","reason":"不超过30字"}]}
+{"items":[{"id":编号,"score":1到10的整数,"tier":"must或good或filler",
+ "category":"ai或security或opensource或hardware","reason":"不超过30字"}]}
 """ + UNTRUSTED_NOTICE
 
 
@@ -349,11 +376,11 @@ def joint_rank(candidates: list[tuple[Article, dict]], usage: Usage,
     if not candidates:
         return []
 
-    progress(f"联合排序：{len(candidates)} 条候选（两个分类放在一起比较）")
+    progress(f"联合排序：{len(candidates)} 条候选（四个板块放在一起比较）")
     lines = []
     for i, (a, meta) in enumerate(candidates, 1):
         date_s = a.published.strftime("%m-%d") if a.published else "??"
-        cat_name = "安全" if a.category == "security" else "AI"
+        cat_name = config.CATEGORIES.get(a.category, {}).get("label", a.category)
         lines.append(
             f"[{i}] ({cat_name}/{date_s}/{_clean(a.source, 40)})"
             f" {_clean(a.title, _MAX_TITLE)}"
@@ -361,17 +388,21 @@ def joint_rank(candidates: list[tuple[Article, dict]], usage: Usage,
             f"\n    批内初选理由：{_clean(meta['reason'], 60)}"
         )
 
+    cat_counts = "、".join(
+        f"{config.CATEGORIES[c]['label']} {n} 条"
+        for c in config.CATEGORIES
+        if (n := sum(1 for a, _ in candidates if a.category == c))
+    )
     user = (
-        f"以下是本周初筛留下的 {len(candidates)} 条候选，"
-        f"其中安全类 {sum(1 for a, _ in candidates if a.category == 'security')} 条、"
-        f"AI 类 {sum(1 for a, _ in candidates if a.category == 'ai')} 条。\n"
-        f"请按上面的锚点统一打分并分档。\n\n"
+        f"以下是本周初筛留下的 {len(candidates)} 条候选（{cat_counts}）。\n"
+        f"请按上面的锚点统一打分、分档，并按内容给每条指定板块。\n\n"
         + _render_articles(lines)
-        + '\n\n只返回 JSON：{"items":[{"id":1,"score":9,"tier":"must","reason":"..."}]}'
+        + '\n\n只返回 JSON：{"items":[{"id":1,"score":9,"tier":"must",'
+          '"category":"ai","reason":"..."}]}'
     )
 
     data = _chat_json(RERANK_SYSTEM, user, config.MODEL_RERANK, usage,
-                      max_tokens=12000, budget=budget)
+                      max_tokens=14000, budget=budget)
 
     ranked: list[tuple[Article, dict]] = []
     for item in data.get("items") or []:
@@ -385,9 +416,13 @@ def joint_rank(candidates: list[tuple[Article, dict]], usage: Usage,
         tier = str(item.get("tier", "")).strip().lower()
         if tier not in ("must", "good", "filler"):
             tier = "good"
+        # 板块以模型按内容判断的为准（这一步定下来，后面 allocate 和渲染都不再改）
+        model_cat = str(item.get("category", "")).strip().lower()
+        category = model_cat if model_cat in config.CATEGORIES else article.category
         ranked.append((article, {
             "score": max(1, min(10, int(item.get("score", meta["score"])))),
             "tier": tier,
+            "category": category,
             "reason": str(item.get("reason") or meta["reason"])[:60],
         }))
 
@@ -398,109 +433,186 @@ def joint_rank(candidates: list[tuple[Article, dict]], usage: Usage,
     seen = {id(a) for a, _ in ranked}
     for article, meta in candidates:
         if id(article) not in seen:
-            ranked.append((article, {**meta, "tier": "filler"}))
+            ranked.append((article, {**meta, "tier": "filler",
+                                     "category": article.category}))
 
     must = sum(1 for _, m in ranked if m["tier"] == "must")
     good = sum(1 for _, m in ranked if m["tier"] == "good")
+    by_cat = "、".join(
+        f"{config.CATEGORIES[c]['label']} {sum(1 for _, m in ranked if m['category'] == c)}"
+        for c in config.CATEGORIES
+    )
     progress(f"  分档结果：must {must} 条，good {good} 条，"
-             f"filler {len(ranked) - must - good} 条")
+             f"filler {len(ranked) - must - good} 条　|　{by_cat}")
     return ranked
 
 
 def allocate(ranked: list[tuple[Article, dict]], progress=print
              ) -> list[tuple[Article, dict]]:
-    """按重要性分配篇幅。这是替代"固定 7/7 名额"的核心算法。
+    """按重要性分配篇幅。这是替代"固定名额"的核心算法。
 
-    规则（顺序很重要）：
-        1. 先收所有 must —— 但每个分类最多 MAX_PER_CATEGORY 条，
-           总数最多 MAX_TOTAL 条
-        2. 保证每个分类至少 MIN_PER_CATEGORY 条 —— 防止某个方向整周消失
-        3. 按分数从高到低继续收，直到分数低于 MIN_SCORE 或达到 MAX_TOTAL
-        4. 如果还没到 MIN_TOTAL，继续收（不看 MIN_SCORE 了），补到 MIN_TOTAL
+    四个约束同时生效（顺序很重要）：
+        1. 先收所有 must
+        2. 每个板块保底 MIN —— 不够就从该板块里分最高的补
+        3. 按分数从高到低续收，直到分数低于 MIN_SCORE 或撞到总上限
+        4. 还不够 MIN_TOTAL，就放宽分数门槛补齐
 
-    结果就是：重要新闻多的周报会变长（最多 MAX_TOTAL），
-    平淡的一周就短（最少 MIN_TOTAL），而不是永远 14 条。
+    另外两条硬约束，全程生效：
+        · 每个板块最多 config.CATEGORIES[c]["max"] 条（防高产板块淹没一切）
+        · 每个源最多 config.MAX_PER_SOURCE 条（防读者以为全世界只有一家媒体）
+
+    板块用 joint_rank() 里模型按内容判断的那个，**不再用来源分类** ——
+    否则"AI 媒体报的漏洞"会被算进 AI 配额，安全板块就能偷偷超编。
+
+    最后一步是"倒换"：如果某个板块因为总名额满了而没到保底，
+    就从最富余的板块里踢掉一条低分的（must 不动），把名额让出来。
+    没有这一步，"保底"在新闻多的周里形同虚设。
     """
     if not ranked:
         return []
 
-    order = {"must": 0, "good": 1, "filler": 2}
     cfg = config
-    chosen: list[tuple[Article, dict]] = []
-    counts = {"security": 0, "ai": 0}
+    order = {"must": 0, "good": 1, "filler": 2}
+    cats = list(cfg.CATEGORIES)
 
-    def try_add(item: tuple[Article, dict], ignore_score: bool = False) -> bool:
-        article, meta = item
-        if item in chosen:
+    chosen: list[tuple[Article, dict]] = []
+    counts = {c: 0 for c in cats}
+    src_counts: dict[str, int] = {}
+
+    def cat_of(item: tuple[Article, dict]) -> str:
+        return item[1].get("category") or item[0].category
+
+    def src_of(item: tuple[Article, dict]) -> str:
+        return item[0].source
+
+    def picked(item) -> bool:
+        # 用身份判断，不用 ==。Article 是 dataclass，== 比的是全部字段，
+        # 两篇同标题不同源的转载会被误判成"已经收过"，而且 O(n²) 很慢。
+        return any(item is x for x in chosen)
+
+    def can_add(item, ignore_score: bool = False) -> bool:
+        art, meta = item
+        c = cat_of(item)
+        if c not in cfg.CATEGORIES:
             return False
         if len(chosen) >= cfg.MAX_TOTAL:
             return False
-        if counts[article.category] >= cfg.MAX_PER_CATEGORY:
+        if counts[c] >= cfg.CATEGORIES[c]["max"]:
+            return False
+        s = src_of(item)
+        if (s not in cfg.MAX_PER_SOURCE_EXEMPT
+                and src_counts.get(s, 0) >= cfg.MAX_PER_SOURCE):
             return False
         if not ignore_score and meta["score"] < cfg.MIN_SCORE:
             return False
-        chosen.append(item)
-        counts[article.category] += 1
         return True
+
+    def add(item) -> None:
+        chosen.append(item)
+        counts[cat_of(item)] += 1
+        src_counts[src_of(item)] = src_counts.get(src_of(item), 0) + 1
 
     # 1. 收 must
     for item in ranked:
-        if item[1]["tier"] == "must":
-            try_add(item, ignore_score=True)
+        if item[1]["tier"] == "must" and not picked(item):
+            if can_add(item, ignore_score=True):
+                add(item)
 
-    # 2. 每类保底：不够就从同类里分最高的补
-    for cat in ("security", "ai"):
-        while counts[cat] < cfg.MIN_PER_CATEGORY:
+    # 2. 每个板块保底（按 config 里的顺序，AI 先保）
+    for cat in cats:
+        while counts[cat] < cfg.CATEGORIES[cat]["min"]:
             pool = [x for x in ranked
-                    if x[0].category == cat and x not in chosen]
+                    if cat_of(x) == cat and not picked(x)]
             if not pool:
-                break                      # 这一类候选本来就不够，补不了
-            if not try_add(pool[0], ignore_score=True):
+                break                     # 这个板块候选本来就不够，补不了
+            if not can_add(pool[0], ignore_score=True):
                 break
+            add(pool[0])
 
-    # 3. 按分数续收，直到过不了门槛
+    # 3. 按分数续收
     for item in ranked:
         if len(chosen) >= cfg.MAX_TOTAL:
             break
-        if item[1]["score"] >= cfg.MIN_SCORE:
-            try_add(item)
+        if item[1]["score"] >= cfg.MIN_SCORE and not picked(item):
+            if can_add(item):
+                add(item)
 
-    # 4. 还不够 MIN_TOTAL，就放宽门槛补齐
+    # 4. 还不够 MIN_TOTAL 就放宽门槛补齐
     if len(chosen) < cfg.MIN_TOTAL:
         for item in ranked:
             if len(chosen) >= cfg.MIN_TOTAL:
                 break
-            try_add(item, ignore_score=True)
+            if not picked(item) and can_add(item, ignore_score=True):
+                add(item)
+
+    # 5. 名额满了但某板块没到保底 → 从最富余的板块踢一条低分条目
+    for _ in range(len(cats) * 3):
+        starved = [c for c in cats if counts[c] < cfg.CATEGORIES[c]["min"]]
+        if not starved:
+            break
+        want = starved[0]
+        pool = [x for x in ranked if cat_of(x) == want and not picked(x)]
+        if not pool:
+            break
+        if len(chosen) >= cfg.MAX_TOTAL:
+            donors = sorted((c for c in cats if counts[c] > cfg.CATEGORIES[c]["min"]),
+                            key=lambda c: -(counts[c] - cfg.CATEGORIES[c]["min"]))
+            if not donors:
+                break
+            victim = None
+            for donor in donors:
+                victims = [x for x in chosen
+                           if cat_of(x) == donor and x[1]["tier"] != "must"]
+                if victims:
+                    victim = min(victims, key=lambda x: x[1]["score"])
+                    break
+            if victim is None:
+                break                     # 全是被保的 must，那就让这个板块空着
+            chosen.pop(next(i for i, x in enumerate(chosen) if x is victim))
+            counts[cat_of(victim)] -= 1
+            src_counts[src_of(victim)] -= 1
+        if can_add(pool[0], ignore_score=True):
+            add(pool[0])
 
     chosen.sort(key=lambda x: (-x[1]["score"], order[x[1]["tier"]]))
-    progress(f"  篇幅分配：收录 {len(chosen)} 条"
-             f"（安全 {counts['security']} / AI {counts['ai']}，"
+    dist = " / ".join(f"{cfg.CATEGORIES[c]['label']} {counts[c]}"
+                      for c in cats if counts[c])
+    top_src = sorted(src_counts.items(), key=lambda x: -x[1])[:3]
+    src_note = "，".join(f"{s} {n} 条" for s, n in top_src)
+    progress(f"  篇幅分配：收录 {len(chosen)} 条（{dist}，"
              f"区间 {cfg.MIN_TOTAL}-{cfg.MAX_TOTAL}）")
+    if src_note:
+        progress(f"  来源分布：{src_note}")
     return chosen
 
 
 # ---------------------------------------------------------------------------
 # 第二步：撰写
 # ---------------------------------------------------------------------------
-WRITE_SYSTEM = """你是一名资深的安全与 AI 领域分析师，为一位关注这两个方向的技术从业者撰写周报。
+WRITE_SYSTEM = """你是一名资深科技编辑，为一位关注技术行业的读者撰写周报。
 
 写作要求：
 - 中文，专业但不堆术语，像懂行的人给同事做口头简报
-- 每条摘要 60-100 字，说清"发生了什么"，不要复述标题
-- "为什么重要" 40-80 字，讲清影响或趋势，不要空洞评价如"值得关注""影响深远"
-- 只依据我提供的标题和摘要。**不得引入任何外部信息，不得编造数字、公司名、时间。**
-  信息不足时就写得保守，宁可说"细节尚未披露"
-- 英文标题请翻译成准确的中文标题，保留专有名词原文（如 OpenAI、Chrome）
+- 按新闻类型调整写法，**这是这份周报最关键的地方**：
+  · 事件型（攻击、泄露、事故、黑产）：讲清 起因 → 过程 → 后果。
+    读者应该能复述"谁被搞了、怎么被搞的、损失多大、后来怎么办的"。
+    摘要 100-150 字，允许分 2-3 句
+  · 产品/模型/硬件发布：讲清"变了什么 + 对谁有实际影响"，
+    不要罗列参数表。摘要 70-100 字
+  · 开源项目：讲清"这是什么 + 为什么突然火 + 谁会用它"。摘要 70-100 字
+- "为什么重要" 40-80 字，讲清影响或趋势。不要写"值得关注""影响深远"这种空话
+- 允许使用我提供摘要里的数字（金额、条数、天数、星标数）；
+  **不得引入任何外部信息，不得编造数字、公司名、时间。**
+  信息不足时就写得保守，宁可说"细节尚未披露"，也不要补出一段听起来合理的剧情
 
 分类要求（重要）：
-- 按**内容**判断分类，不要照抄我给的来源分类。
-  比如"某产品漏洞被在野利用"即使来自 AI 媒体，也属于 security。
-- security：漏洞、攻击、数据泄露、勒索、恶意软件、间谍活动、安全防护
-- ai：模型发布/能力、AI 产品与产业、AI 治理、AI 引发的社会与安全争议
+- 分类已由上一道评审按内容定好，**照抄我给的板块，不要改**。
+  （以前让撰写环节重新判断，结果 AI 媒体报的漏洞被算进 AI 板块，
+   安全板块因此能超过配额 —— 现在分类只在一处定。）
 
 只输出 JSON，格式：
 {"overview":"2-3 句话概括本周整体趋势",
- "items":[{"id":编号,"category":"security或ai","title":"中文标题","summary":"摘要","why":"为什么重要"}]}
+ "items":[{"id":编号,"category":"照抄给定板块","title":"中文标题","summary":"摘要","why":"为什么重要"}]}
 """ + UNTRUSTED_NOTICE
 
 
@@ -510,20 +622,23 @@ def write(selected: list[tuple[Article, dict]], usage: Usage, progress=print,
     lines = []
     for i, (a, meta) in enumerate(selected, 1):
         date_s = a.published.strftime("%Y-%m-%d") if a.published else "日期未知"
+        cat = meta.get("category") or a.category
+        cat_label = config.CATEGORIES.get(cat, {}).get("label", cat)
         lines.append(
-            f"[{i}] 分类：{a.category} | 来源：{_clean(a.source, 40)} | 日期：{date_s}\n"
+            f"[{i}] 板块：{cat_label}（id={cat}）| 来源：{_clean(a.source, 40)} "
+            f"| 日期：{date_s}\n"
             f"    原标题：{_clean(a.title, _MAX_TITLE)}\n"
             f"    原始摘要：{_clean(a.summary, _MAX_SUMMARY) or '（该源未提供摘要）'}\n"
-            f"    初选理由：{_clean(meta['reason'], 60)}"
+            f"    评审理由：{_clean(meta['reason'], 60)}"
         )
 
     user = (
         f"本周共选出 {len(selected)} 条新闻，请为每条撰写中文标题、摘要和重要性说明，"
-        f"并按内容判断每条的分类，另写一段本周整体观察。\n"
-        f"（注意：下面标注的分类是「来源分类」，仅供参考，"
-        f"你要按内容重新判断——比如某个 AI 媒体报的漏洞利用，应该归 security。）\n\n"
+        f"并写一段本周整体观察。\n"
+        f"注意：每条的板块已经定好（括号里的 id 就是），"
+        f"请原样填回 category 字段，不要重新判断、不要改。\n\n"
         + _render_articles(lines)
-        + '\n\n只返回 JSON：{"overview":"...","items":[{"id":1,"category":"security",'
+        + '\n\n只返回 JSON：{"overview":"...","items":[{"id":1,"category":"ai",'
           '"title":"...","summary":"...","why":"..."}]}'
     )
 
@@ -551,17 +666,17 @@ def analyze(articles: list[Article], progress=print, budget=None) -> tuple[dict,
     """
     usage = Usage()
 
-    groups: dict[str, list[Article]] = {"security": [], "ai": []}
+    groups: dict[str, list[Article]] = {c: [] for c in config.CATEGORIES}
     for a in articles:
         groups.setdefault(a.category, []).append(a)
 
-    # ---- 1. 按分类召回候选 ----
+    # ---- 1. 按板块召回候选 ----
     candidates: list[tuple[Article, dict]] = []
-    for cat in ("security", "ai"):
+    for cat in config.CATEGORIES:
         pool = groups.get(cat, [])
         if not pool:
             continue
-        label = "网络安全" if cat == "security" else "人工智能"
+        label = config.CATEGORIES[cat]["label"]
         progress(f"召回【{label}】：{len(pool)} 篇")
         got = screen(pool, usage, progress, budget=budget)
         if not got:
@@ -594,9 +709,11 @@ def analyze(articles: list[Article], progress=print, budget=None) -> tuple[dict,
         if idx not in by_id:
             continue
         article, meta = by_id[idx]
-        # 分类以模型按内容判断的为准；模型没给或给了非法值就退回源的分类
-        model_cat = str(item.get("category", "")).strip().lower()
-        category = model_cat if model_cat in ("security", "ai") else article.category
+        # 板块以 joint_rank 里按内容定的为准（allocate 也用它算配额）。
+        # 模型在撰写阶段如果把 category 改了，一律忽略 —— 否则配额会被绕过。
+        category = meta.get("category") or article.category
+        if category not in config.CATEGORIES:
+            category = article.category
         enriched.append({
             "title": str(item.get("title") or article.title),
             "summary": str(item.get("summary") or article.summary),

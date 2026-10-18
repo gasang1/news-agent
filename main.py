@@ -31,13 +31,14 @@ import config
 import fetch
 import netcheck
 import notify
+import replay
 import screening
 
-CATEGORY_LABEL = {
-    "security": "🔒 网络安全",
-    "ai": "🤖 人工智能",
-}
+CATEGORY_LABEL = {c: v["label"] for c, v in config.CATEGORIES.items()}
+CATEGORY_ORDER = sorted(config.CATEGORIES,
+                        key=lambda c: config.CATEGORIES[c]["order"])
 LANG_LABEL = {"zh": "中文", "en": "英文"}
+REPORT_TITLE = "# 科技周报"
 
 
 # ---------------------------------------------------------------------------
@@ -269,10 +270,15 @@ def build_weekly_markdown(analysis: dict, usage, outcomes: list[fetch.FetchOutco
     add = lines.append
 
     items = analysis["items"]
-    sec = [i for i in items if i["category"] == "security"]
-    ai = [i for i in items if i["category"] == "ai"]
+    # 板块顺序由 config.CATEGORIES[*]["order"] 决定（AI → 安全 → 开源 → 硬件）。
+    # 模型理论上只输出四类之一，但存档/旧数据里可能有别的值 —— 兜底塞进 AI，
+    # 免得条目莫名其妙消失。
+    groups: dict[str, list[dict]] = {c: [] for c in CATEGORY_ORDER}
+    for it in items:
+        cat = it.get("category")
+        groups[cat if cat in groups else "ai"].append(it)
 
-    add(f"# 安全 & AI 周报 · {start:%Y-%m-%d} ~ {end:%Y-%m-%d}")
+    add(f"{REPORT_TITLE} · {start:%Y-%m-%d} ~ {end:%Y-%m-%d}")
     add("")
     add(f"> 生成时间：{datetime.now():%Y-%m-%d %H:%M}　|　时间窗口：{window_desc}")
     add(">")
@@ -298,11 +304,12 @@ def build_weekly_markdown(analysis: dict, usage, outcomes: list[fetch.FetchOutco
         add(analysis["overview"].strip())
         add("")
 
-    # 人工智能在前，网络安全在后
-    for label, group in (("🤖 人工智能", ai), ("🔒 网络安全", sec)):
+    # 按板块顺序渲染：人工智能 → 网络安全 → 开源项目 → 科技硬件
+    for cat in CATEGORY_ORDER:
+        group = groups[cat]
         if not group:
             continue
-        add(f"## {label}（{len(group)} 条）")
+        add(f"## {CATEGORY_LABEL[cat]}（{len(group)} 条）")
         add("")
         for i, item in enumerate(group, 1):
             date_s = item["published"].strftime("%Y-%m-%d") if item["published"] else "日期未知"
@@ -322,6 +329,49 @@ def build_weekly_markdown(analysis: dict, usage, outcomes: list[fetch.FetchOutco
     add("")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# 零成本重放：用存档的模型判定重新渲染
+# ---------------------------------------------------------------------------
+def render_from_analysis(path: str, no_save: bool, no_notify: bool) -> int:
+    """用 --save-analysis 存下的判定重新渲染周报。不联网、不调模型、零 token。
+
+    调"分配篇幅 / 板块顺序 / 排版"时用它：改完代码立刻能看新效果，
+    而不用重新抓 RSS、重新烧 5 万 tokens。
+    """
+    data = replay.load_analysis(path)
+    analysis = data["analysis"]
+    md = build_weekly_markdown(analysis, data["usage"], [], None,
+                               data["window_desc"], data["start"], data["end"],
+                               data["stats"])
+
+    print("=" * 78)
+    print(f"从存档重放：{path}（{len(analysis['items'])} 条，零 token）")
+    print(f"存档参数：{data['window_desc']}，{data['start']:%Y-%m-%d} ~ {data['end']:%Y-%m-%d}")
+    print(f"存档用量：{data['usage']}")
+    print("-" * 78)
+    for i, item in enumerate(analysis["items"], 1):
+        cat = item.get("category", "?")
+        label = config.CATEGORIES.get(cat, {}).get("label", cat)
+        print(f"{i:>3}. [{label}] {item['title']}")
+
+    if no_save:
+        print("\n[--no-save] 不写文件。以下是渲染结果：\n")
+        print(md)
+        return 0
+
+    out_dir = Path(config.OUTPUT_DIR)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"weekly_{datetime.now():%Y-%m-%d}.md"
+    out_path.write_text(md, encoding="utf-8")
+    print("\n" + "=" * 78)
+    print(f"周报已保存：{out_path}")
+    print(f"文件大小：{out_path.stat().st_size:,} 字节")
+    if not no_notify:
+        notify.send_weekly(True, data["start"], data["end"],
+                           len(analysis["items"]), md)
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +395,14 @@ def main() -> int:
                         help="只看本周 token 额度，不抓取不调用模型")
     parser.add_argument("--if-missing", action="store_true",
                         help="今天的周报已经生成就直接退出，没有才补跑（定时补跑用）")
+    parser.add_argument("--save-raw", metavar="PATH",
+                        help="把抓取+粗筛后的文章清单存成 JSON（调试挑选规则用）")
+    parser.add_argument("--from-raw", metavar="PATH",
+                        help="从 JSON 加载文章清单，跳过网络抓取（省时间，仍花 token）")
+    parser.add_argument("--save-analysis", metavar="PATH",
+                        help="把模型的判定结果存成 JSON（之后可零成本重新渲染）")
+    parser.add_argument("--from-analysis", metavar="PATH",
+                        help="用存档的模型判定重新渲染周报，不抓取不调模型（零 token）")
     parser.add_argument("--limit", type=int, default=0, help="终端每类最多显示几条（0=全部）")
     args = parser.parse_args()
 
@@ -358,6 +416,12 @@ def main() -> int:
         last = budget.load_last_success()
         print(f"上次成功运行：{last or '（还没有记录）'}")
         return 0
+
+    # 零成本重放：不抓取、不调模型，只重新渲染
+    if args.from_analysis:
+        return render_from_analysis(args.from_analysis,
+                                    no_save=args.no_save,
+                                    no_notify=args.no_notify)
 
     # 补跑闸门：定时的第二次触发（周一 13:20）用 --if-missing。
     # 12:05 那次跑成功了，这里直接退出，不重复花钱、不重复推送；
@@ -403,9 +467,31 @@ def main() -> int:
     print("-" * 78)
 
     # ---- 2. 抓取 ----
-    print("开始抓取：")
-    all_articles, outcomes = fetch.fetch_all(sources, proxy, progress=print,
-                                             force_direct=is_ci)
+    gh_enabled = bool(config.GITHUB_TRENDING.get("enabled")) and not args.from_raw
+    if args.from_raw:
+        all_articles = replay.load_articles(args.from_raw)
+        outcomes: list[fetch.FetchOutcome] = []
+        print(f"从存档加载文章：{len(all_articles)} 篇（{args.from_raw}，跳过网络抓取）")
+    else:
+        print("开始抓取：")
+        all_articles, outcomes = fetch.fetch_all(sources, proxy, progress=print,
+                                                 force_direct=is_ci)
+        if gh_enabled:
+            cfg_gh = config.GITHUB_TRENDING
+            print(f"  查询最近 {cfg_gh['days']} 天新建、星标 > {cfg_gh['min_stars']} "
+                  f"的仓库（GitHub API）...")
+            gh = fetch.fetch_github_trending(
+                proxy, force_direct=is_ci,
+                days=int(cfg_gh["days"]), min_stars=int(cfg_gh["min_stars"]),
+                limit=int(cfg_gh["limit"]),
+            )
+            if gh.error:
+                print(f"  ✗ {gh.name:<18} {gh.error}")
+            else:
+                tag = "代理" if gh.via_proxy else "直连"
+                print(f"  ✓ {gh.name:<18} {len(gh.articles):>3} 条  [{tag}]")
+            outcomes.append(gh)
+            all_articles.extend(gh.articles)
 
     # ---- 3. 时间过滤 ----
     in_window = [
@@ -426,7 +512,7 @@ def main() -> int:
 
     ok = sum(1 for o in outcomes if not o.error and not o.skipped)
     stats = {
-        "sources_total": len(config.SOURCES),
+        "sources_total": len(config.SOURCES) + (1 if gh_enabled else 0),
         "sources_ok": ok,
         "sources_skipped": skipped_sources + sum(1 for o in outcomes if o.skipped),
         "sources_failed": sum(1 for o in outcomes if o.error and not o.skipped),
@@ -446,6 +532,12 @@ def main() -> int:
     if stats["sources_failed"]:
         print(f"有 {stats['sources_failed']} 个源抓取失败，明细见本次日志里的『抓取情况』"
               f"（周报正文已不再附来源表）")
+
+    # ---- 存档：调挑选规则时用它重跑，不必重抓 RSS ----
+    if args.save_raw:
+        saved = replay.dump_articles(args.save_raw, filtered)
+        print(f"文章清单已存档：{saved}（{len(filtered)} 篇）"
+              f"　→ 之后可用 --from-raw {args.save_raw} 跳过抓取")
 
     # ---- 7. AI 精选（有 Key 且未禁用时）----
     use_ai = not args.no_ai and bool(config.get_api_key())
@@ -499,6 +591,10 @@ def main() -> int:
             ai_budget.save()
 
     too_few = False            # 收录条数低于阈值：这次不算成功
+    if use_ai and args.save_analysis:
+        saved = replay.dump_analysis(args.save_analysis, analysis, usage,
+                                     start, end, window_desc, stats)
+        print(f"模型判定已存档：{saved}（之后可用 --from-analysis 零成本重渲染）")
     if use_ai:
         n_items = len(analysis["items"])
         if too_few_items(n_items):
@@ -524,7 +620,8 @@ def main() -> int:
         print("-" * 78)
         print(f"收录 {len(analysis['items'])} 条（{usage}）")
         for i, item in enumerate(analysis["items"], 1):
-            tag = "AI" if item["category"] == "ai" else "安全"
+            cat = item["category"]
+            tag = config.CATEGORIES.get(cat, {}).get("label", cat)
             print(f"{i:>3}. [{tag}] {item['title']}")
             print(f"       {item['summary'][:80]}")
 

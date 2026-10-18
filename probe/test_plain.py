@@ -40,6 +40,28 @@ ANALYSIS = {
             "published": datetime(2026, 10, 15),
             "score": 8,
         },
+        {
+            "title": "测试标题 C",
+            "summary": "测试摘要 C。",
+            "why": "测试影响 C。",
+            "url": "https://example.com/c",
+            "source": "GitHub 周榜",
+            "category": "opensource",
+            "lang": "en",
+            "published": datetime(2026, 10, 14),
+            "score": 7,
+        },
+        {
+            "title": "测试标题 D",
+            "summary": "测试摘要 D。",
+            "why": "测试影响 D。",
+            "url": "https://example.com/d",
+            "source": "测试源",
+            "category": "hardware",
+            "lang": "zh",
+            "published": datetime(2026, 10, 13),
+            "score": 7,
+        },
     ],
     # 旧数据里可能还带 advice 字段：必须照样被忽略，不能渲染出来
     "advice": ["这是一条不该出现的旧建议"],
@@ -83,16 +105,21 @@ def test() -> int:
     ok5 = check("没有失败源的名字", "坏源" not in md)
 
     print("=== 2. 正文完好 ===")
-    ok6 = check("有一级标题", md.startswith("# 安全 & AI 周报"))
+    ok6 = check("有一级标题", md.startswith("# 科技周报"), md.splitlines()[0][:24])
     ok7 = check("有本周观察", "## 本周观察" in md)
     ok8 = check("有 AI 分组", "## 🤖 人工智能（1 条）" in md)
     ok9 = check("有安全分组", "## 🔒 网络安全（1 条）" in md)
-    ok10 = check("AI 在安全之前", md.find("🤖 人工智能") < md.find("🔒 网络安全"))
+    ok21 = check("有开源分组", "## 🧩 开源项目（1 条）" in md)
+    ok22 = check("有硬件分组", "## 💻 科技硬件（1 条）" in md)
+    order = [md.find(f"## {main.CATEGORY_LABEL[c]}") for c in main.CATEGORY_ORDER]
+    ok10 = check("板块顺序 = AI → 安全 → 开源 → 硬件",
+                 all(x >= 0 for x in order) and order == sorted(order),
+                 str(order))
     ok11 = check("条目四要素齐全",
                  all(k in md for k in ("- **摘要**：", "- **为什么重要**：",
                                        "- **来源**：", "- **原文**：")))
     ok12 = check("原文链接保留", "https://example.com/a" in md)
-    ok13 = check("头部统计行保留", "**收录 2 条**" in md)
+    ok13 = check("头部统计行保留", "**收录 4 条**" in md)
 
     print("=== 3. 结尾只剩一行免责说明 ===")
     tail = [ln for ln in md.splitlines() if ln.strip()]
@@ -123,7 +150,8 @@ def test() -> int:
         print("  " + line)
 
     passed = all([ok1, ok2, ok3, ok4, ok5, ok6, ok7, ok8, ok9, ok10,
-                  ok11, ok12, ok13, ok14, ok15, ok16, ok17, ok18, ok19, ok20])
+                  ok11, ok12, ok13, ok14, ok15, ok16, ok17, ok18, ok19, ok20,
+                  ok21, ok22])
     print(f"\n{'全部通过' if passed else '有失败项'}")
     return 0 if passed else 1
 

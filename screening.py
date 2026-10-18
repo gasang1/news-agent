@@ -76,6 +76,29 @@ RELEVANCE_KEYWORDS = {
         "fine-tun", "agentic", "multimodal", "embodied", "kling", "sora",
         "open-weight", "ai model", "ai lab", "ai company", "text-to-",
     ],
+    # 硬件这一栏的词表刻意只收"产业级"词汇（芯片、制程、大厂动作），
+    # 不收"手机/耳机/相机"这类消费电子词 —— 那些绝大多数是导购和评测，
+    # 正是黑名单要挡的东西。收进来等于把噪声放进候选池，白烧 token。
+    "hardware": [
+        "芯片", "半导体", "制程", "晶圆", "光刻", "代工", "封装", "晶体管",
+        "显卡", "算力", "数据中心", "服务器", "内存", "存储", "固态", "电池",
+        "英伟达", "台积电", "英特尔", "超威", "三星电子", "阿斯麦", "博通",
+        "量产", "产能", "扩产", "收购", "并购", "投资", "裁员", "重组",
+        "nvidia", "tsmc", "intel", "amd", "asml", "broadcom", "samsung",
+        "semiconductor", "foundry", "wafer", "chipset", "gpu", "hbm",
+        "transistor", "data center", "lithography", "fab ", "memory",
+        "acquisition", "layoff",
+    ],
+    # 开源项目的词表：要么是"项目本身"（仓库、星标、移植、复刻），
+    # 要么是"开源生态"（许可证、贡献者、基金会）。
+    "opensource": [
+        "开源", "星标", "仓库", "复刻", "移植", "重写", "贡献者", "维护者",
+        "许可证", "协议变更", "基金会", "分支", "合并请求", "众筹",
+        "github", "open source", "open-source", "openweight", "repo",
+        "repository", "pull request", "fork", "mit license", "apache",
+        "gpl", "contributor", "maintainer", "roadmap", "self-hosted",
+        "reimplementation", "port of",
+    ],
 }
 
 # 短词必须限定"前后都不是英文字母"，不能当子串用。

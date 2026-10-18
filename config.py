@@ -61,22 +61,43 @@ SCREEN_BATCH_SIZE = 55
 # ---------------------------------------------------------------------------
 # 周报篇幅与收录规则
 # ---------------------------------------------------------------------------
-# 设计思路：不设固定名额，按重要性浮动，只保留必要的上下界。
+# 四个板块，各有自己的下限和上限。为什么不用一个统一数字：
+#   - 安全类天然高产（一周几百条漏洞通报），不压就会淹掉别的板块
+#   - 开源和硬件一周真能出圈的只有几条，下限设太高会逼模型拿垃圾凑数
+#   - AI 是读者最想看的，给最大的额度
 #
-#   MIN_PER_CATEGORY  每个分类至少收录几条 —— 防止某个方向整周消失
-#   MAX_PER_CATEGORY  每个分类最多收录几条 —— 防止戏剧性事件淹没一切
-#   MIN_TOTAL/MAX_TOTAL  周报总条数区间 —— 重要新闻多的周就长，平淡的周就短
-#   MIN_SCORE         过线分数 —— 低于这个分的条目只在补足篇幅时才收
+#   min  每个板块至少几条 —— 防止某个方向整周消失（候选不够时会自动放弃）
+#   max  每个板块最多几条 —— 防止高产板块淹没一切
+#   order 渲染顺序（同时决定"总额度用完时谁先被砍"的优先级：排前面的先收）
+#
+# MIN_TOTAL/MAX_TOTAL 是总条数区间 —— 重要新闻多的周就长，平淡的周就短。
+# MIN_SCORE 是过线分数 —— 低于这个分的条目只在补足篇幅时才收。
 #
 # 为什么不直接用"按分数排序取前 N"：
 #   模型给的分数是自我评价，跨分类不可比，而且它天然偏爱"漏洞在野利用"
 #   这类戏剧性事件。所以要一次跨分类联合排序（让分数可比）+ 保底和上限
 #   （防止偏科）+ 分数门槛（决定篇幅），三者缺一不可。
-MIN_PER_CATEGORY = 4
-MAX_PER_CATEGORY = 10
-MIN_TOTAL = 10
-MAX_TOTAL = 18
+CATEGORIES = {
+    "ai":         {"label": "🤖 人工智能",  "emoji": "🤖", "min": 4, "max": 8, "order": 1},
+    "security":   {"label": "🔒 网络安全",  "emoji": "🔒", "min": 2, "max": 6, "order": 2},
+    "opensource": {"label": "🧩 开源项目",  "emoji": "🧩", "min": 2, "max": 6, "order": 3},
+    "hardware":   {"label": "💻 科技硬件",  "emoji": "💻", "min": 2, "max": 5, "order": 4},
+}
+
+MIN_TOTAL = 12
+MAX_TOTAL = 20
 MIN_SCORE = 6
+
+# 同一个源最多占几条。
+# 为什么需要这个：The Hacker News 一周能发几十条，光按分数排它能占掉
+# 一半篇幅 —— 读者会以为"全世界的安全新闻都长这样"。设 3 条，
+# 逼着分配器去找第二、第三个源的同等级新闻，视野才真的打开。
+# 只有一条例外：GitHub 开源榜本身就是一个"多项目合集"，不按同源限制。
+MAX_PER_SOURCE = 3
+
+# 「同源上限」的例外：GitHub 周榜里每条是一个独立项目，本质上是个合集，
+# 不该被当成"一家媒体发了 5 条"来看待。
+MAX_PER_SOURCE_EXEMPT = {"GitHub 周榜"}
 
 # 每批筛查最多留下几条候选（这些是后面联合排序的输入池）
 CANDIDATES_PER_BATCH = 6
@@ -159,7 +180,8 @@ MIN_ITEMS_FOR_SUCCESS = 5
 # ---------------------------------------------------------------------------
 # name           : 显示用名字
 # url            : RSS 地址
-# category       : "security"（网络安全）/ "ai"（人工智能），只影响报告分组
+# category       : "security" / "ai" / "hardware" / "opensource"
+#                  —— 只影响分批召回的桶，最终板块由模型按内容判断
 # lang           : "zh" / "en"
 # requires_proxy : 是否必须有代理才能访问
 #
@@ -189,13 +211,46 @@ SOURCES = [
     {"name": "极客公园",          "url": "https://www.geekpark.net/rss",                    "category": "ai",       "lang": "zh", "requires_proxy": False},
     {"name": "开源中国",          "url": "https://www.oschina.net/news/rss",                "category": "ai",       "lang": "zh", "requires_proxy": False},
     {"name": "Solidot",           "url": "https://www.solidot.org/index.rss",               "category": "ai",       "lang": "zh", "requires_proxy": False},
+    {"name": "雷峰网",            "url": "https://www.leiphone.com/feed",                   "category": "ai",       "lang": "zh", "requires_proxy": False},
 
     # ================= 人工智能 · 需要代理 =================
     {"name": "MIT Tech Review",   "url": "https://www.technologyreview.com/topic/artificial-intelligence/feed", "category": "ai", "lang": "en", "requires_proxy": True},
     {"name": "Ars Technica",      "url": "https://feeds.arstechnica.com/arstechnica/index", "category": "ai",       "lang": "en", "requires_proxy": True},
     {"name": "Wired",             "url": "https://www.wired.com/feed/rss",                  "category": "ai",       "lang": "en", "requires_proxy": True},
     {"name": "TechCrunch",        "url": "https://techcrunch.com/feed/",                    "category": "ai",       "lang": "en", "requires_proxy": True},
+
+    # ================= 科技硬件 · 国内可直连 =================
+    # 这两家是中文科技媒体里出稿最快、覆盖最全的，硬件/大厂决策主要靠它们。
+    {"name": "IT之家",            "url": "https://www.ithome.com/rss/",                     "category": "hardware", "lang": "zh", "requires_proxy": False},
+    {"name": "cnBeta",            "url": "https://www.cnbeta.com.tw/backend.php",           "category": "hardware", "lang": "zh", "requires_proxy": False},
+
+    # ================= 科技硬件 · 需要代理 =================
+    {"name": "Tom's Hardware",    "url": "https://www.tomshardware.com/feeds/all",          "category": "hardware", "lang": "en", "requires_proxy": True},
+
+    # ================= 开源项目 · 需要代理 =================
+    # GitHub 官方博客：发布产品变更、平台策略，属于"开源生态"的权威信息源。
+    # 真正的「本周爆火项目」不走 RSS，走 GitHub 搜索 API（见下面的 GITHUB_TRENDING）。
+    {"name": "GitHub Blog",       "url": "https://github.blog/feed/",                       "category": "opensource", "lang": "en", "requires_proxy": True},
 ]
+
+# ---------------------------------------------------------------------------
+# 本周爆火的开源项目（GitHub 搜索 API，不是 RSS）
+# ---------------------------------------------------------------------------
+# 思路：查"最近 N 天新建、星标超过 min_stars 的仓库"，按星标倒序取前 limit 个。
+# 为什么不用 GitHub Trending 页面：
+#   1. 那是 HTML，改版就会挂（实测正则已经解析不到仓库名了）
+#   2. 页面不提供结构化数据（语言、描述、star 数都要另外抠）
+# 搜索 API 返回 JSON，字段干净，就是给程序看的。
+#
+# 在 GitHub Actions 里会自动带上 GITHUB_TOKEN（workflow 里已传），
+# 限额 5000 次/小时；本机没有 token 也能跑（限额 10 次/分钟，一次运行只查 1 次）。
+GITHUB_TRENDING = {
+    "enabled": True,
+    "days": 7,              # 只看最近这么多天新建的仓库
+    "min_stars": 100,       # 低于这个星标的不算"爆火"
+    "limit": 25,            # 最多取几个进候选池
+}
+
 
 # ---------------------------------------------------------------------------
 # 注：关键词表在 screening.py 里（黑名单 + 领域关键词一起维护，避免两处不同步）
