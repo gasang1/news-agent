@@ -439,9 +439,18 @@ WRITE_SYSTEM = """你是一名资深的安全与 AI 领域分析师，为一位�
 - security：漏洞、攻击、数据泄露、勒索、恶意软件、间谍活动、安全防护
 - ai：模型发布/能力、AI 产品与产业、AI 治理、AI 引发的社会与安全争议
 
+建议部分（重要）：
+- 面向"想入行网络安全、但还在门外的人"写 3 条建议
+- **必须和本周新闻挂钩**：从本周的事件里反推出"所以你现在该练什么、看什么"，
+  不要写放之四海的空话。反例：多读书、多实践、打好基础、保持好奇心。
+  正例：本周三起在野利用都打在 VPN 网关上 → 建议先把 TLS 握手和 VPN 认证日志看一遍。
+- 每条 40-70 字，格式为"短句点题：具体做法"
+- 不说教、不励志、不要"加油"
+
 只输出 JSON，格式：
 {"overview":"2-3 句话概括本周整体趋势",
- "items":[{"id":编号,"category":"security或ai","title":"中文标题","summary":"摘要","why":"为什么重要"}]}
+ "items":[{"id":编号,"category":"security或ai","title":"中文标题","summary":"摘要","why":"为什么重要"}],
+ "advice":["短句点题：40-70字的具体做法","...","..."]}
 """
 
 
@@ -460,12 +469,12 @@ def write(selected: list[tuple[Article, dict]], usage: Usage, progress=print,
 
     user = (
         f"本周共选出 {len(selected)} 条新闻，请为每条撰写中文标题、摘要和重要性说明，"
-        f"并按内容判断每条的分类，另写一段本周整体观察。\n"
+        f"并按内容判断每条的分类，另写一段本周整体观察，最后写 3 条给新人的建议。\n"
         f"（注意：下面标注的分类是「来源分类」，仅供参考，"
         f"你要按内容重新判断——比如某个 AI 媒体报的漏洞利用，应该归 security。）\n\n"
         + "\n\n".join(lines)
         + '\n\n只返回 JSON：{"overview":"...","items":[{"id":1,"category":"security",'
-          '"title":"...","summary":"...","why":"..."}]}'
+          '"title":"...","summary":"...","why":"..."}],"advice":["...","...","..."]}'
     )
 
     progress(f"正在撰写 {len(selected)} 条摘要 ...")
@@ -553,4 +562,10 @@ def analyze(articles: list[Article], progress=print, budget=None) -> tuple[dict,
     if not enriched:
         raise ApiError("撰写阶段返回的 id 与候选文章对不上，检查提示词")
 
-    return {"overview": str(result.get("overview", "")), "items": enriched}, usage
+    advice = result.get("advice")
+    if not isinstance(advice, list):
+        advice = []
+    advice = [str(x).strip() for x in advice if str(x).strip()]
+
+    return {"overview": str(result.get("overview", "")), "items": enriched,
+            "advice": advice}, usage

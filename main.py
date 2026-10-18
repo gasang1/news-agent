@@ -273,6 +273,17 @@ def build_weekly_markdown(analysis: dict, usage, outcomes: list[fetch.FetchOutco
             add(f"- **原文**：{item['url']}")
             add("")
 
+    # 给新人的建议：放在正文末尾、附录之前。模型没给就整段略去。
+    advice = analysis.get("advice") or []
+    if advice:
+        add("---")
+        add("")
+        add("## 🎯 给想入行网络安全的你")
+        add("")
+        for i, tip in enumerate(advice, 1):
+            add(f"{i}. {tip}")
+        add("")
+
     add("---")
     add("")
     add("## 附：数据来源")
