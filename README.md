@@ -254,6 +254,46 @@ OUTPUT_DIR = r"D:\坚果云\安全AI周报"
 
 无论有没有配通道、通道发没发成功，所有通知都会打印到终端并追加进 `state/notifications.log`（单条上限 1500 字符，避免仓库被日志撑大）。所以「没配通道 = 丢失通知」不会发生。
 
+### 每周会推几条？
+
+正常跑一次 = **1 条**（标题「周报 10-11~10-18｜18 条」，正文是周报全文）。
+
+只有两种情况会多发一条：
+
+| 情况 | 多发的那条 |
+|---|---|
+| 抓取或模型环节失败 | 「本周周报没跑成功」（error） |
+| 周额度用到 80% 以上 | 「本周 AI 额度已用到 80% 以上」（warning） |
+
+**代码里只有一处推送调用**：`main.py` 里周报保存成功后调 `notify.send_weekly()`。`weekly.yml` 里没有任何测试推送——所以不会每周都收到"测试消息"。
+
+> 首次接通时手动发过一条「周报 agent 测试推送」，那是命令行手工验证 SendKey，不在流程里。
+
+### 如果别人也想看（当前选择：不公开）
+
+现在是**私有仓库 + 只推给你自己**。想开放时，四条路任选：
+
+| 方案 | 别人怎么看 | 改动量 |
+|---|---|---|
+| 仓库转 Public | 打开 `https://github.com/gasang1/news-agent/tree/main/reports` 就能读全部历史 | 一键（Settings → General → Danger Zone → Change visibility） |
+| GitHub Pages | 固定网址 + 周报目录页，像个小网站 | 加一个 deploy job（公开仓库免费） |
+| 多个微信收件人 | 各自注册 Server 酱，你把他们的 SendKey 也填进来 | `config.get_sendkey()` 改成支持逗号分隔的多 key，约 10 行 |
+| 企业微信群机器人 | 群里所有人都能看到 | 填 `notify.py` 的 `_send_wecom()` |
+
+零改动的临时办法：微信里长按那条周报消息 → **转发**给朋友。
+
+**转公开前必须确认的事**（已查过，2026-10-18）：
+
+```powershell
+git log --all -S 'sk-7509ca6143' --oneline   # DeepSeek Key
+git log --all -S 'ghp_' --oneline             # GitHub token
+git log --all -S 'SCT443074' --oneline        # Server 酱 SendKey
+```
+
+三条命令在全部 4 个分支、全部提交历史里**都是空的**——密钥只存在于 `.env`（被 gitignore）和 GitHub Secrets 里，从没进过仓库。所以转公开不会泄露凭据。
+
+顺带一个好处：**公开仓库的 Actions 分钟数不限额**（私有仓库每月 2000 分钟免费额度）。这个项目每周跑 3 分钟，两种都够用。
+
 ---
 
 ## 周报篇幅怎么决定的
