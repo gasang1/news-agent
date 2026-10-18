@@ -87,7 +87,7 @@ git push -u origin main
 
 | 时间 | 动作 |
 |---|---|
-| 每周一 01:00 UTC（北京时间 09:00） | 自动运行 |
+| 每周一 04:05 UTC（北京时间 12:05） | 自动运行（选这个点是趁 DeepSeek 的空闲时段，价格是高峰的一半） |
 | 跑完 | 把 `reports/` 和 `state/` 提交回仓库 |
 | 同时 | 上传周报为 Actions 附件（保留 30 天） |
 
@@ -106,7 +106,7 @@ git push -u origin main
 ### 第 1 层替代方案：Windows 任务计划（电脑要开着）
 
 ```powershell
-schtasks /create /tn "SecurityAI_Weekly" /tr "python \"D:\deepseek harness\news-agent\main.py\"" /sc weekly /d MON /st 09:00
+schtasks /create /tn "SecurityAI_Weekly" /tr "python \"D:\deepseek harness\news-agent\main.py\"" /sc weekly /d MON /st 12:05
 ```
 
 ⚠️ **默认行为有个坑：错过时间就永久跳过。** 用图形界面打开"任务计划程序"，在任务设置里勾上：
@@ -466,7 +466,7 @@ reports/weekly_YYYY-MM-DD.md
 
 两个省钱点：
 
-1. **把定时挪出高峰时段**。现在 `cron: "0 1 * * 1"` = 北京时间**周一 09:00**，正好踩在高峰起点上。改成 `0 0 * * 1`（周一 08:00）就是空闲价，**直接省一半**。
+1. **定时已挪出高峰时段**。`cron: "5 4 * * 1"` = 北京时间**周一 12:05**，落在 12:00-14:00 的空档里，按空闲价计费（高峰是 9:00-12:00 和 14:00-18:00，价格翻倍）。一次运行 3~4 分钟，跑完也不会跨进 14:00。**这一条就省了一半费用。**
 2. **缓存命中很便宜**（pro 输入 0.15 元/百万，是未命中的 1/30）。系统提示词固定、但新闻内容每次不同，所以只能吃到一部分——不用特意优化。
 
 周额度 30 万 ≈ 6 次完整运行。正常每周 1 次，用掉约 15%。
