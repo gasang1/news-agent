@@ -1,11 +1,11 @@
 {
   "period_start": "2026-10-12",
-  "prompt_tokens": 24182,
-  "completion_tokens": 18022,
-  "calls": 7,
-  "runs": 1,
-  "last_run": "2026-10-18T16:07:17",
-  "run_prompt_tokens": 24182,
-  "run_completion_tokens": 18022,
+  "prompt_tokens": 48760,
+  "completion_tokens": 39360,
+  "calls": 14,
+  "runs": 2,
+  "last_run": "2026-10-18T20:10:09",
+  "run_prompt_tokens": 24578,
+  "run_completion_tokens": 21338,
   "run_calls": 7
 }
