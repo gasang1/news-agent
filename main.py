@@ -16,12 +16,13 @@
     python main.py --no-ai         # 不调模型，只输出筛选后的全量清单
     python main.py --no-save       # 只打印，不写文件
     python main.py --check-budget  # 只看本周额度用了多少，不抓取
+    python main.py --if-missing    # 今天的周报已存在就跳过，没有才补跑
 """
 
 import argparse
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import analyzer
@@ -42,6 +43,28 @@ LANG_LABEL = {"zh": "中文", "en": "英文"}
 # ---------------------------------------------------------------------------
 # 时间窗口
 # ---------------------------------------------------------------------------
+def today_report_path(day: date | None = None) -> Path:
+    """今天那次运行"应该"产出的周报路径。
+
+    文件名用的是**运行当天日期**（见下面保存周报那一段），
+    所以补跑闸门只要看这一个路径就知道今天有没有成功过。
+    """
+    day = day or date.today()
+    return Path(config.OUTPUT_DIR) / f"weekly_{day:%Y-%m-%d}.md"
+
+
+def report_ready(path: Path) -> bool:
+    """判断一份周报是否"真的生成了"。
+
+    只看文件存不存在不够：写入过程中崩溃会留下半个文件。所以还要求体积达标
+    （正常周报 8~15 KB，下限设成 `config.MIN_REPORT_BYTES`）。
+    """
+    try:
+        return path.is_file() and path.stat().st_size >= config.MIN_REPORT_BYTES
+    except OSError:
+        return False
+
+
 def resolve_window(args) -> tuple[datetime, datetime, str]:
     """返回 (起, 止, 给人看的描述)。
 
@@ -310,6 +333,8 @@ def main() -> int:
                         help="不推送微信，只写文件")
     parser.add_argument("--check-budget", action="store_true",
                         help="只看本周 token 额度，不抓取不调用模型")
+    parser.add_argument("--if-missing", action="store_true",
+                        help="今天的周报已经生成就直接退出，没有才补跑（定时补跑用）")
     parser.add_argument("--limit", type=int, default=0, help="终端每类最多显示几条（0=全部）")
     args = parser.parse_args()
 
@@ -323,6 +348,17 @@ def main() -> int:
         last = budget.load_last_success()
         print(f"上次成功运行：{last or '（还没有记录）'}")
         return 0
+
+    # 补跑闸门：定时的第二次触发（周一 13:20）用 --if-missing。
+    # 12:05 那次跑成功了，这里直接退出，不重复花钱、不重复推送；
+    # 没成功（红、降级、被额度拦）才会走到下面，自动补一期。
+    if args.if_missing:
+        path = today_report_path()
+        if report_ready(path):
+            print(f"✅ 今天的周报已经生成（{path}，{path.stat().st_size:,} 字节），"
+                  f"本次不补跑。")
+            return 0
+        print(f"⚠️  今天还没有可用的周报（{path}），开始补跑。")
 
     start, end, window_desc = resolve_window(args)
 
