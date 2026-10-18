@@ -274,7 +274,7 @@ def build_weekly_markdown(analysis: dict, usage, outcomes: list[fetch.FetchOutco
             add("")
 
     # 正文到此结束。数据来源明细和给新人的建议都不再渲染进周报，
-    # 想看来源明细可以查 Actions 日志或 state/last_run.json。
+    # 想看每个源的成败请看本次运行的日志输出（build_markdown 里的『抓取情况』）。
     add(f"<sub>覆盖 {start:%Y-%m-%d} 至 {end:%Y-%m-%d}。"
         f"摘要与点评由 AI 基于 RSS 提供的标题和描述生成，"
         f"原文链接均来自源站，请以原文为准。</sub>")
@@ -388,7 +388,8 @@ def main() -> int:
     if undated:
         print(f"注意：{undated} 篇没有发布时间，已一并保留（无法判断是否在本周）")
     if stats["sources_failed"]:
-        print(f"有 {stats['sources_failed']} 个源抓取失败，见报告末尾的「抓取情况」表")
+        print(f"有 {stats['sources_failed']} 个源抓取失败，明细见本次日志里的『抓取情况』"
+              f"（周报正文已不再附来源表）")
 
     # ---- 7. AI 精选（有 Key 且未禁用时）----
     use_ai = not args.no_ai and bool(config.get_api_key())
