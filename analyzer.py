@@ -136,11 +136,21 @@ def _chat_json(system: str, user: str, model: str, usage: Usage,
 
         choice = res["choices"][0]
         content = (choice["message"].get("content") or "").strip()
+        finish = choice.get("finish_reason")
+
+        # 输出被 max_tokens 截断：JSON 只写了一半，解析必然失败。
+        # 这种情况不能"有内容就当成功"——那会一路抛到上层，整期周报降级。
+        # 放大预算重试才是对的：说明这次是篇幅估少了，不是模型不会写。
+        if content and finish == "length" and attempt < 2:
+            usage.last_note = (f"输出被截断(finish=length, max_tokens={max_tokens})，"
+                               f"放大重试")
+            max_tokens = min(max_tokens * 2, 32000)
+            continue
+
         if content:
             break
 
         # 空内容 → 推理吃光了预算，放大后重试
-        finish = choice.get("finish_reason")
         usage.last_note = f"空返回(finish={finish}, max_tokens={max_tokens})，放大重试"
         max_tokens = min(max_tokens * 3, 32000)
 

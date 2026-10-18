@@ -50,6 +50,19 @@ jobs:
           python-version: "3.12"
           # 本项目零第三方依赖（只用标准库），所以不需要缓存 pip
 
+      # 离线自检：全部在本地跑，不联网、不调用模型、不花一个 token，几秒完成。
+      # 为什么放在花钱那步之前：渲染、筛选、截断这些纯逻辑最容易在改动时被弄坏，
+      # 而它们坏了以后"看起来"照样能跑——报告少了一段、推送被服务端拒掉，都不会报错。
+      # 任何一项失败就让整次运行变红，比周一中午收到一份残缺周报强。
+      - name: 离线自检
+        run: |
+          python probe/test_plain.py
+          python probe/test_screening.py
+          python probe/test_notify.py
+          python probe/test_if_missing.py
+          python probe/test_allocate.py
+          python probe/test_budget.py
+
       - name: 生成周报
         env:
           # Key 存在 GitHub Secrets 里，不要写进代码。

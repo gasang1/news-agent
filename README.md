@@ -164,6 +164,42 @@ python main.py --check-budget
 
 如果这个日期一直不变，说明任务没在跑。
 
+### 第 4 层：失败时会变红（退出码）
+
+`main.py` 的退出码是有约定的，GitHub Actions 只看这个：
+
+| 退出码 | 含义 | Actions 显示 |
+|---|---|---|
+| `0` | 正常生成了周报 | 绿色 ✅ |
+| `3` | **该出周报但没出**（AI 环节失败、额度耗尽，只产出了 `digest_*.md` 粗筛清单） | 红色 ❌ |
+| `1` | 程序自己崩了（异常） | 红色 ❌ |
+
+为什么非要区分 `0` 和 `3`：以前所有路径都返回 `0`，于是模型 JSON 解析失败、额度耗尽这些事故在 Actions 页面上也是绿色对勾 —— 你只会以为"这周没新闻"，而不会想到"程序坏了"。现在任何一次没写出周报，都会亮红灯，并且微信会收到一条「AI 环节失败」的 error 推送。
+
+`--no-ai` 和没配 API Key 属于**你自己要求的**降级，仍然返回 `0`（不然本地随便试试就变红）。
+
+### 第 5 层：花钱之前先跑测试
+
+`weekly.yml` 里"离线自检"那一步在真正抓取之前跑 6 个离线测试：
+
+```
+test_plain.py      周报渲染（含失败源 ⚠️ 告警的三种形态）
+test_screening.py  筛选规则（中文连写、黑名单优先级）
+test_notify.py     微信推送（字节截断、标题、失败重试）
+test_if_missing.py 补跑闸门（文件大小判据）
+test_allocate.py   篇幅分配（每类上下限、总数上下限）
+test_budget.py     额度账本（事前拦截、周期清零、漏跑补偿）
+```
+
+全部不联网、不调用模型、**不花一个 token**，几秒钟跑完。任何一条挂了，这次运行直接变红、不会去抓新闻 —— 因为这些东西坏掉的时候"看起来"照样能跑：报告少一段、推送被服务端拒掉，都不会报错。
+
+手动跑全套：
+
+```bash
+python probe/test_plain.py && python probe/test_screening.py && python probe/test_notify.py \
+  && python probe/test_if_missing.py && python probe/test_allocate.py && python probe/test_budget.py
+```
+
 ---
 
 ## token 预算：防止成本失控
@@ -241,7 +277,9 @@ python main.py --check-budget
 
 免费额度是**每天 5 条**，这个 agent 每周只发 1 条，用不完。
 
-实现细节：`notify.py` → `_send_serverchan()`，POST `https://sctapi.ftqq.com/<SendKey>.send`，标题限 32 字、正文限 32KB（超了按行截断并注明）。发失败**不影响周报生成**，只是收不到推送。
+实现细节：`notify.py` → `_send_serverchan()`，POST `https://sctapi.ftqq.com/<SendKey>.send`，标题限 32 字、正文限 32KB。发失败**不影响周报生成**，只是收不到推送。
+
+> **32KB 是字节，不是字数。** 一个汉字经 form 编码后占 9 字节，所以"6,000 字的周报"其实已经 3 万字节、贴着上限了。代码按**编码后的字节数**截断（`notify._clip_bytes`），超长时保留前面完整的条目、末尾注明"内容过长，完整版见仓库"，不会把某一条切成两半。按字数限流是行不通的：30,000 字的中文约 27 万字节，那道闸永远不会触发，推送会直接在服务端被拒。
 
 ### ② GitHub 网页 / 手机 App
 
@@ -356,7 +394,7 @@ git log --all -S 'SCT443074' --oneline        # Server 酱 SendKey
 | `notify.py` | 通知出口：微信推送（Server 酱）+ 本地落地 |
 | `main.py` | 主流程串联与 Markdown 渲染 |
 | `state/` | 运行状态：额度账本 `usage.json`、通知日志 |
-| `probe/` | 一次性探测与测试脚本，日常不用 |
+| `probe/` | 一次性探测与测试脚本；`test_*.py` 六个是离线自检，CI 每次都会跑 |
 
 数据流：
 
@@ -385,9 +423,9 @@ reports/weekly_YYYY-MM-DD.md
 
 | 环境 | 加载的源 | 连接方式 |
 |---|---|---|
-| 本地，代理**关闭** | 国内源（11 个） | 全部直连 |
-| 本地，代理**开启** | 全部（19 个） | 国内直连 + 英文走代理 |
-| **GitHub Actions** | 全部（19 个） | **全部直连** |
+| 本地，代理**关闭** | 国内源（10 个） | 全部直连 |
+| 本地，代理**开启** | 全部（18 个） | 国内直连 + 英文走代理 |
+| **GitHub Actions** | 全部（18 个） | **全部直连** |
 
 为什么 GitHub 上是"全部直连"？
 因为 GitHub 的服务器本来就能访问墙外站点，`requires_proxy` 这个**本地**判断在那里不再适用。
@@ -461,6 +499,23 @@ reports/weekly_YYYY-MM-DD.md
    它只返回 JSON（标题/摘要/点评/分类），链接、来源、日期全部由本地数据填充，
    模型没有机会编造一个不存在的 URL。
 
+7. **"32KB" 是字节，不是字数。**
+   Server 酱的正文上限按 form-urlencoded 后的请求体算，一个汉字 9 字节。
+   按字符限流（原来写的 30,000 字）等于没有限流：现役周报 6,660 字就已经
+   30,880 字节、占到上限的 94%，再长一点就静默发不出去。
+   现在按字节截断，并且真正被截断时会附上"完整版见仓库"。
+
+8. **`\b` 管不住中英混排。**
+   中文字符在 Python 正则里也算 word 字符，所以 `\bai\b` 匹配不到 `ai芯片`，
+   `\bgpu\b` 匹配不到 `gpu加速`（实测全 False）。
+   改用"前后都不是英文字母"的写法 `(?<![a-z])ai(?![a-z])`，
+   既命中中文连写，又不会让 `ai` 命中 `email` / `said`。
+   回归测试在 `probe/test_screening.py`。
+
+9. **失败必须有退出码。**
+   全都 `return 0` 的脚本在 Actions 里永远是绿色对勾，
+   出事了你只会以为"这周没新闻"。现在 AI 环节失败返回 `3`。
+
 ---
 
 ## 成本
@@ -508,6 +563,11 @@ reports/weekly_YYYY-MM-DD.md
 - [ ] 企业微信机器人 / 邮件通道（`notify.py` 里留了空壳）
 - [x] ~~定时运行~~ → GitHub Actions，见 `.github/workflows/weekly.yml`
 - [x] ~~漏跑补偿~~ → `state/last_run.json` + 窗口自动扩展
+- [x] ~~失败时 Actions 变红~~ → AI 环节失败返回退出码 `3`
+- [x] ~~CI 跑离线测试~~ → workflow 里「离线自检」一步，6 个 `probe/test_*.py`
+- [ ] **提示词注入加固**：RSS 标题/摘要原样进 prompt，建议在 SYSTEM 里声明 `<articles>` 内是不可信数据
+- [ ] **额度告警去重**：越过 80% 之后每次运行都会再推一条 warning（`run #6` 就收到两条）
+- [ ] 无 `published` 的条目永远落在窗口内（某个源改了日期格式就会持续混入旧闻）
 
 ---
 

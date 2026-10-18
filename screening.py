@@ -78,9 +78,20 @@ RELEVANCE_KEYWORDS = {
     ],
 }
 
-# 短词必须按词边界匹配，不能当子串用。
+# 短词必须限定"前后都不是英文字母"，不能当子串用。
 # 比如 "ai" 作为子串会命中 "said"、"email"、"detail"——那就全乱了。
-SHORT_TOKEN_PATTERNS = [r"\bai\b", r"\bml\b", r"\bgpu\b", r"\bcve-\d{4}\b"]
+#
+# 为什么不用 \b：中文字符在 Python 正则里也算 word 字符，
+# 所以 \b 在 "AI芯片"、"gpu加速"、"CVE-2026-1234漏洞" 里都不成立（实测全是 False）。
+# 用"前后不是英文字母"才能同时管住中英混排和子串误命中：
+#   ai芯片     ✓ 命中     email / said   ✗ 不命中
+#   GPU 加速   ✓ 命中     html           ✗ 不命中
+SHORT_TOKEN_PATTERNS = [
+    r"(?<![a-z])ai(?![a-z])",
+    r"(?<![a-z])ml(?![a-z])",
+    r"(?<![a-z])gpu(?![a-z])",
+    r"(?<![a-z])cve-\d{4}",
+]
 _SHORT_RE = [re.compile(p, re.IGNORECASE) for p in SHORT_TOKEN_PATTERNS]
 
 _KEYWORD_SETS = {

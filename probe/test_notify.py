@@ -75,15 +75,38 @@ def main() -> int:
         notify.notify("很" * 80, MD, level="info")
         check("标题被截断", len(spy.calls[0][1]["title"]) == 32, f'{len(spy.calls[0][1]["title"])} 字')
 
-        print("=== 4. 超长正文按上限截断并注明 ===")
+        print("=== 4. 正文按「编码后的字节数」截断（Server 酱的限制是字节，不是字符）===")
+        # 回归：以前按字符限流（30,000 字符），中文一编码就膨胀 9 倍，
+        # 那道闸永远不触发，推送到了服务端才被 400 拒掉。
+        def make_text(target_bytes: int) -> str:
+            lines: list[str] = []
+            i = 1
+            while notify._encoded_len("\n".join(lines)) < target_bytes:
+                lines.append(f"- 第 {i} 条：这是一行用来把正文撑长的测试内容，含中文与 English 混排。")
+                i += 1
+            return "\n".join(lines)
+
+        # 4a. 刚好塞得下：一个字节都不该动
+        fits = make_text(config.NOTIFY_MAX_BYTES - 800)
         spy = Spy()
         notify._post_form = spy
-        long_md = "\n".join(f"- 第 {i} 条：这是一行用来把正文撑长的测试内容。" for i in range(3000))
+        notify.notify("装得下", fits, level="info")
+        desp = spy.calls[0][1]["desp"]
+        check("装得下就原样发出", desp == fits.strip(),
+              f"{notify._encoded_len(fits):,} 字节 / 上限 {config.NOTIFY_MAX_BYTES:,}")
+
+        # 4b. 明显超长：截断 + 提示 + 不把一行切两半
+        long_md = make_text(config.NOTIFY_MAX_BYTES * 2)
+        spy = Spy()
+        notify._post_form = spy
         notify.notify("长正文", long_md, level="info")
         desp = spy.calls[0][1]["desp"]
-        check("长度不超过上限", len(desp) <= config.NOTIFY_MAX_CHARS + 100, f"{len(desp)} 字符")
+        size = notify._encoded_len(desp)
+        check("编码后不超过上限", size <= config.NOTIFY_MAX_BYTES,
+              f"{size:,} 字节 / 上限 {config.NOTIFY_MAX_BYTES:,}")
         check("有截断提示", "完整版见仓库" in desp)
-        check("不是把一行切成两半", desp.count("\n- 第 ") > 100)
+        check("不是把一行切成两半", desp.count("\n- 第 ") > 10,
+              f"保留 {desp.count(chr(10) + '- 第 ')} 行")
 
         print("=== 5. 服务端返回错误码：不抛异常、返回 False ===")
         spy = Spy(reply={"code": 40001, "message": "bad sendkey"})

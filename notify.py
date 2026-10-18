@@ -64,7 +64,11 @@ def _proxy_candidates() -> list[str | None]:
 
 
 def _clip(text: str, limit: int, hint: str) -> str:
-    """按行截断到 limit 以内，尽量不把一句话切一半。"""
+    """按行截断到 limit 以内，尽量不把一句话切一半。
+
+    这是按**字符**截断，只用于本地日志（state/notifications.log）。
+    发给 Server 酱的正文必须按字节截断，用下面的 _clip_bytes。
+    """
     text = text.strip()
     if len(text) <= limit:
         return text
@@ -73,6 +77,41 @@ def _clip(text: str, limit: int, hint: str) -> str:
     if nl > limit // 2:
         cut = cut[:nl]
     return cut.rstrip() + f"\n\n……（{hint}）"
+
+
+# 正文实际会以 form-urlencoded 发出去，所以"多大"要按编码后的字节数算：
+# 一个汉字 → 3 字节 UTF-8 → %E4%B8%AD 这样的 9 字节。
+def _encoded_len(text: str) -> int:
+    """这段文字发出去会占多少字节（和 _post_form 的编码方式保持一致）。"""
+    return len(urllib.parse.urlencode({"desp": text}).encode("utf-8"))
+
+
+def _clip_bytes(text: str, limit: int, hint: str) -> str:
+    """按"URL 编码后的字节数"截断 —— Server 酱的 32KB 限制就是这个单位。
+
+    为什么不能按字符数：汉字编码后膨胀 9 倍，6,000 字的周报已经是 28KB。
+    按字符算会得出"还有很大余量"的错觉，然后推送在服务端被拒，
+    日志里只剩一行 400，你周一中午什么都收不到。
+
+    按行二分：找到"能塞下的最长行前缀"，避免把一句话切两半。
+    """
+    text = text.strip()
+    if _encoded_len(text) <= limit:
+        return text
+
+    budget = max(1_000, limit - 300)        # 给尾部的截断提示留出空间
+    lines = text.splitlines()
+    lo, hi = 0, len(lines)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if _encoded_len("\n".join(lines[:mid])) <= budget:
+            lo = mid
+        else:
+            hi = mid - 1
+
+    kept = "\n".join(lines[:lo]).rstrip()
+    tail = f"\n\n……（{hint}）"
+    return kept + tail if kept else f"（内容过长，已省略）{tail}"
 
 
 # ---------------------------------------------------------------------------
@@ -90,8 +129,9 @@ def _send_serverchan(title: str, message: str) -> bool:
         return False
 
     url = f"https://sctapi.ftqq.com/{key}.send"
-    fields = {"title": title[:32], "desp": _clip(message, config.NOTIFY_MAX_CHARS,
-                                               "内容过长，完整版见仓库 reports/")}
+    fields = {"title": title[:32],
+              "desp": _clip_bytes(message, config.NOTIFY_MAX_BYTES,
+                                  "内容过长，完整版见仓库 reports/")}
 
     last_err = ""
     for proxy in _proxy_candidates():

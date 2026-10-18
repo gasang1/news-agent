@@ -445,6 +445,7 @@ def main() -> int:
         print("\n[跳过 AI] 没有找到 DEEPSEEK_API_KEY，只输出粗筛后的清单")
 
     ai_budget = None
+    ai_failed = False          # AI 环节真的失败了（不是用户主动 --no-ai）
     if use_ai:
         # ---- 加载本周 token 预算 ----
         ai_budget = budget.Budget.load()
@@ -474,6 +475,7 @@ def main() -> int:
                 level="error",
             )
             use_ai = False
+            ai_failed = True
         except analyzer.ApiError as e:
             print(f"\nAI 环节失败：{e}")
             notify.notify(
@@ -482,6 +484,7 @@ def main() -> int:
                 level="error",
             )
             use_ai = False
+            ai_failed = True
         finally:
             ai_budget.save()
 
@@ -536,6 +539,14 @@ def main() -> int:
         print(f"已保存：{out_path}")
         print(f"文件大小：{out_path.stat().st_size:,} 字节")
 
+    # 退出码约定：0 = 正常；3 = 该出周报但没出（AI 环节失败，只剩粗筛清单）。
+    # 为什么要区分：GitHub Actions 只看退出码。全都返回 0 的话，
+    # 模型 JSON 解析失败、额度耗尽这些事故在页面上都是绿色对勾，
+    # 你只会以为"这周没新闻"，而不是"程序坏了"。
+    # --no-ai / 没配 Key 属于用户主动选择，仍然返回 0。
+    if ai_failed:
+        print("\n⚠️  本次没有生成周报，只产出了粗筛清单（退出码 3，让 Actions 变红）。")
+        return 3
     return 0
 
 
