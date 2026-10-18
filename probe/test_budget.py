@@ -150,30 +150,40 @@ def t6_run_cap() -> None:
 
 
 def t7_catchup() -> None:
-    """漏跑补偿：隔了 10 天没跑，窗口应该自动扩到 10 天。"""
+    """漏跑补偿：隔了 10 天没跑，窗口应该自动扩到 10 天。
+
+    注意：这个测试会临时删掉真实的 state/last_run.json，结束后必须恢复，
+    否则下次正式运行会以为"从没跑过"，窗口退回 7 天。
+    """
+    backup = None
     if budget.LAST_RUN_FILE.exists():
+        backup = budget.LAST_RUN_FILE.read_text(encoding="utf-8")
         budget.LAST_RUN_FILE.unlink()
 
-    days, note = budget.catchup_days(7, today=date.today())
-    print(f"   无历史记录 → 默认 {days} 天（{note or '无说明'}）")
-    assert days == 7
+    try:
+        days, note = budget.catchup_days(7, today=date.today())
+        print(f"   无历史记录 → 默认 {days} 天（{note or '无说明'}）")
+        assert days == 7
 
-    ten_days_ago = date.today() - timedelta(days=10)
-    budget.save_last_success(ten_days_ago)
-    days, note = budget.catchup_days(7, today=date.today())
-    print(f"   上次运行在 10 天前 → 窗口 {days} 天")
-    print(f"   {note}")
-    assert days == 10, days
+        ten_days_ago = date.today() - timedelta(days=10)
+        budget.save_last_success(ten_days_ago)
+        days, note = budget.catchup_days(7, today=date.today())
+        print(f"   上次运行在 10 天前 → 窗口 {days} 天")
+        print(f"   {note}")
+        assert days == 10, days
 
-    # 超过上限要被截断
-    old = date.today() - timedelta(days=200)
-    budget.save_last_success(old)
-    days, _ = budget.catchup_days(7, today=date.today())
-    print(f"   上次运行在 200 天前 → 窗口 {days} 天（上限 {config.CATCHUP_MAX_DAYS}）")
-    assert days == config.CATCHUP_MAX_DAYS, days
-
-    if budget.LAST_RUN_FILE.exists():
-        budget.LAST_RUN_FILE.unlink()
+        # 超过上限要被截断
+        old = date.today() - timedelta(days=200)
+        budget.save_last_success(old)
+        days, _ = budget.catchup_days(7, today=date.today())
+        print(f"   上次运行在 200 天前 → 窗口 {days} 天（上限 {config.CATCHUP_MAX_DAYS}）")
+        assert days == config.CATCHUP_MAX_DAYS, days
+    finally:
+        if backup is not None:
+            budget.LAST_RUN_FILE.write_text(backup, encoding="utf-8")
+            print("   已恢复真实的 state/last_run.json ✓")
+        elif budget.LAST_RUN_FILE.exists():
+            budget.LAST_RUN_FILE.unlink()
 
 
 if __name__ == "__main__":
