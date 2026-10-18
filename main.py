@@ -273,34 +273,8 @@ def build_weekly_markdown(analysis: dict, usage, outcomes: list[fetch.FetchOutco
             add(f"- **原文**：{item['url']}")
             add("")
 
-    # 给新人的建议：放在正文末尾、附录之前。模型没给就整段略去。
-    advice = analysis.get("advice") or []
-    if advice:
-        add("---")
-        add("")
-        add("## 🎯 给想入行网络安全的你")
-        add("")
-        for i, tip in enumerate(advice, 1):
-            add(f"{i}. {tip}")
-        add("")
-
-    add("---")
-    add("")
-    add("## 附：数据来源")
-    add("")
-    add("| 源 | 状态 | 抓取条数 | 路线 |")
-    add("| --- | --- | --- | --- |")
-    for o in sorted(outcomes, key=lambda x: (x.error == "", x.name)):
-        if o.skipped:
-            state, note, count = "跳过", o.error, "-"
-        elif o.error:
-            state, note, count = "**失败**", o.error, "-"
-        else:
-            state = "正常"
-            note = "走代理" if o.via_proxy else "直连"
-            count = str(len(o.articles))
-        add(f"| {o.name} | {state} | {count} | {note} |")
-    add("")
+    # 正文到此结束。数据来源明细和给新人的建议都不再渲染进周报，
+    # 想看来源明细可以查 Actions 日志或 state/last_run.json。
     add(f"<sub>覆盖 {start:%Y-%m-%d} 至 {end:%Y-%m-%d}。"
         f"摘要与点评由 AI 基于 RSS 提供的标题和描述生成，"
         f"原文链接均来自源站，请以原文为准。</sub>")
