@@ -139,7 +139,9 @@ NOTIFY_ENABLED = False
 SOURCES = [
     # ================= 网络安全 · 国内可直连 =================
     # 说明：嘶吼（最新文章停在 2026-05）和安全脉搏（停在 2025-07）实测已停更，已剔除。
-    {"name": "奇安信攻防社区",    "url": "https://forum.butian.net/Rss",                    "category": "security", "lang": "zh", "requires_proxy": False},
+    # 说明：奇安信攻防社区（forum.butian.net）在本机能抓，但 GitHub 的 Azure 出口 IP
+    #       被它的 WAF 拦，稳定返回 HTTP 403。为了让每周「数据来源」表不再挂一条失败，
+    #       2026-10-18 移除。想看它的话本地手动加回来即可。
     {"name": "先知社区",          "url": "https://xz.aliyun.com/feed",                      "category": "security", "lang": "zh", "requires_proxy": False},
     {"name": "绿盟博客",          "url": "https://blog.nsfocus.net/feed/",                  "category": "security", "lang": "zh", "requires_proxy": False},
     {"name": "Seebug Paper",      "url": "https://paper.seebug.org/rss/",                   "category": "security", "lang": "zh", "requires_proxy": False},
