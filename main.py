@@ -66,6 +66,39 @@ def report_ready(path: Path) -> bool:
         return False
 
 
+def week_anchor(day: date | None = None) -> date:
+    """这一周的周一（周报的"周期锚点"）。"""
+    day = day or date.today()
+    return day - timedelta(days=day.weekday())
+
+
+def week_report_ready(day: date | None = None) -> tuple[bool, Path | None]:
+    """本周（从周一起）是否已经有可用的周报。
+
+    为什么按"周"而不是按"今天"判断——这是 2026-10-19 那次事故换来的教训：
+    定时任务只是"尽力而为"，GitHub 可能延迟几十分钟，也可能整个丢掉。
+    按天判断的话，周一那次没触发就等于这一周都没人管，而用户只会觉得
+    "说好的周一中午呢"。按周判断，只要本周**任意一天**成功过一次，
+    后面几天就不会重复花钱；反过来，周一没跑成，周二到周日任何一天都还能补上。
+    """
+    anchor = week_anchor(day)
+    out = Path(config.OUTPUT_DIR)
+    if not out.is_dir():
+        return False, None
+
+    best: tuple[date, Path] | None = None
+    for p in out.glob("weekly_*.md"):
+        try:
+            d = datetime.strptime(p.stem[len("weekly_"):], "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if d < anchor or not report_ready(p):
+            continue
+        if best is None or d > best[0]:
+            best = (d, p)
+    return (best is not None), (best[1] if best else None)
+
+
 def too_few_items(n_items: int) -> bool:
     """收录条数是不是低到"该当故障处理"。
 
@@ -402,6 +435,9 @@ def main() -> int:
                         help="只看本周 token 额度，不抓取不调用模型")
     parser.add_argument("--if-missing", action="store_true",
                         help="今天的周报已经生成就直接退出，没有才补跑（定时补跑用）")
+    parser.add_argument("--if-week-missing", action="store_true",
+                        help="本周（周一起）已经有周报就直接退出（每日定时检查用，"
+                             "防止 GitHub 丢掉某一次 cron 就整周没周报）")
     parser.add_argument("--save-raw", metavar="PATH",
                         help="把抓取+粗筛后的文章清单存成 JSON（调试挑选规则用）")
     parser.add_argument("--from-raw", metavar="PATH",
@@ -446,6 +482,19 @@ def main() -> int:
                   f"本次不补跑。")
             return 0
         print(f"⚠️  今天还没有可用的周报（{path}），开始补跑。")
+
+    # 每日检查闸门（--if-week-missing）：本周有周报就什么都不做。
+    # 定时任务改成"每天都看一眼"，是因为 GitHub 的 cron 会丢：
+    # 2026-10-19（周一）那次 12:05 和 13:20 两个 cron 都没触发，
+    # 如果只押注周一那一次，整周就白等。现在周一没跑成，周二到周日都能补上，
+    # 而已经生成过的那几天只读一个文件就退出，零 token。
+    if args.if_week_missing:
+        ready, path = week_report_ready()
+        if ready and path is not None:
+            print(f"✅ 本周的周报已经生成（{path.name}，{path.stat().st_size:,} 字节），"
+                  f"本次跳过，不花钱。")
+            return 0
+        print(f"⚠️  本周（自 {week_anchor():%Y-%m-%d} 周一 起）还没有可用的周报，开始生成。")
 
     start, end, window_desc = resolve_window(args)
 
