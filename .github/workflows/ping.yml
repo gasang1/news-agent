@@ -1,0 +1,23 @@
+name: 定时器体检
+
+# 这是**临时**用来验证"GitHub 到底会不会自己触发定时任务"的最小工作流：
+# 每 5 分钟跑一次（GitHub 允许的最短间隔），只 echo 两行，不联网、不花钱。
+# 验证完就删掉这个文件。
+#
+# 背景：2026-10-19（周一）12:05 和 13:20 两个 cron 都没触发，
+# 手动补加的一条 14:17 的 cron 也没触发，仓库里 schedule 事件数一直是 0。
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: 报到
+        run: |
+          echo "触发方式：${{ github.event_name }}"
+          echo "UTC 时间：$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          echo "北京时间：$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S')"
